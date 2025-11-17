@@ -3,9 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <!-- CACHE ÖNLEME EKLENDİ -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0, pre-check=0, post-check=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="-1">
+<meta name="cache-control" content="no-cache">
+<meta name="expires" content="0">
+<meta name="pragma" content="no-cache">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Öğrenci Sınav Uygulaması (Gelişmiş)</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -52,7 +55,7 @@
         let isAuthReady = false;
 
         const TEACHER_CODE = 'OGRETMEN34';
-        const EXAM_CODE = '33344';
+        const EXAM_CODE = '111';
         const TEACHER_NAME = 'Öztürk sevinç (biyoloji Öğretmeni)';
         const TIME_LIMIT_SECONDS = 600;
 
@@ -381,7 +384,6 @@
         }
 
         function showQuiz() {
-
             document.getElementById('app').classList.remove('max-w-md');
             document.getElementById('app').classList.add('max-w-3xl');
             document.getElementById('loginHeader').innerHTML = `<h1 class="text-2xl font-extrabold">${studentData.name} - Sınav (${studentData.examCode})</h1>`;
@@ -739,9 +741,13 @@ function showTeacherPanel() {
         <div class="flex justify-start items-center mb-4 gap-2 flex-wrap">
             <input type="text" id="filterExamCode" placeholder="Sınav Kodu ile filtrele" class="border border-gray-300 rounded-lg px-3 py-1 text-sm" />
             <input type="text" id="filterStudentNumber" placeholder="Öğrenci No ile filtrele" class="border border-gray-300 rounded-lg px-3 py-1 text-sm" />
+            <div id="filterInfo" class="text-xs text-gray-500 ml-2"></div>
         </div>
         <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
-            <button id="downloadCsvButton" class="button bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md">Tüm Sonuçları Excel (CSV) İndir</button>
+            <div class="flex gap-2 flex-wrap">
+                <button id="downloadCsvButton" class="button bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md">Tüm Sonuçları Excel (CSV) İndir</button>
+                <button id="bulkDeleteButton" class="button bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md">Filtrelenenleri Toplu Sil</button>
+            </div>
             <button id="teacherLogout" class="button bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md">Çıkış Yap</button>
         </div>
         <div class="overflow-x-auto bg-white rounded-lg shadow-lg border border-indigo-100">
@@ -769,6 +775,7 @@ function showTeacherPanel() {
 
     document.getElementById('teacherLogout').addEventListener('click', showLoginForm);
     document.getElementById('downloadCsvButton').addEventListener('click', downloadSubmissionsAsCsv);
+    document.getElementById('bulkDeleteButton').addEventListener('click', handleBulkDelete);
     document.getElementById('filterExamCode').addEventListener('input', renderSubmissionsTable);
     document.getElementById('filterStudentNumber').addEventListener('input', renderSubmissionsTable);
 
@@ -806,6 +813,16 @@ function renderSubmissionsTable() {
         const matchesNumber = sub.number?.toString().toLowerCase().includes(studentNumberFilter);
         return matchesExamCode && matchesNumber;
     });
+
+    // Filtre bilgisini göster
+    const filterInfo = document.getElementById('filterInfo');
+    if (filterInfo) {
+        if (examCodeFilter || studentNumberFilter) {
+            filterInfo.textContent = `Filtrelenen: ${filteredSubmissions.length} / ${currentSubmissions.length} kayıt`;
+        } else {
+            filterInfo.textContent = `Toplam: ${currentSubmissions.length} kayıt`;
+        }
+    }
 
     if (filteredSubmissions.length === 0) {
         tableBody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-gray-500">Filtreye uyan sonuç bulunamadı.</td></tr>';
@@ -854,6 +871,88 @@ async function handleDeleteSubmission(event) {
             await showCustomAlert("Hata", "Kaydı silerken bir hata oluştu.");
         }
     }
+}
+
+async function handleBulkDelete() {
+    const examCodeFilter = document.getElementById('filterExamCode')?.value.toLowerCase() || '';
+    const studentNumberFilter = document.getElementById('filterStudentNumber')?.value.toLowerCase() || '';
+
+    const filteredSubmissions = currentSubmissions.filter(sub => {
+        const matchesExamCode = sub.examCode?.toLowerCase().includes(examCodeFilter);
+        const matchesNumber = sub.number?.toString().toLowerCase().includes(studentNumberFilter);
+        return matchesExamCode && matchesNumber;
+    });
+
+    if (filteredSubmissions.length === 0) {
+        await showCustomAlert("Uyarı", "Silinecek filtreli kayıt bulunamadı.");
+        return;
+    }
+
+    const filterDetails = [];
+    if (examCodeFilter) filterDetails.push(`Sınav Kodu: "${examCodeFilter}"`);
+    if (studentNumberFilter) filterDetails.push(`Öğrenci No: "${studentNumberFilter}"`);
+    
+    const confirmed = await showCustomConfirmation(
+        `Toplam ${filteredSubmissions.length} adet kayıt silinecek.\n\n` +
+        `${filterDetails.length > 0 ? filterDetails.join('\n') + '\n\n' : 'Tüm kayıtlar silinecek!\n\n'}` +
+        `Bu işlem geri alınamaz. Devam etmek istiyor musunuz?`
+    );
+
+    if (!confirmed) return;
+
+    if (!db) {
+        await showCustomAlert("Hata", "Veritabanı bağlantısı yok.");
+        return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    // Silme işlemini göster
+    const tableBody = document.getElementById('submissionsTableBody');
+    if (tableBody) {
+        tableBody.innerHTML = `<tr><td colspan="8" class="text-center py-4">
+            <div class="flex items-center justify-center gap-2">
+                <svg class="animate-spin h-5 w-5 text-orange-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-orange-600 font-semibold">Toplu silme işlemi devam ediyor... (0/${filteredSubmissions.length})</span>
+            </div>
+        </td></tr>`;
+    }
+
+    for (let i = 0; i < filteredSubmissions.length; i++) {
+        const submission = filteredSubmissions[i];
+        try {
+            const docRef = doc(db, 'quiz_submissions', submission.id);
+            await deleteDoc(docRef);
+            successCount++;
+            
+            // İlerleme göster
+            if (tableBody && (i % 5 === 0 || i === filteredSubmissions.length - 1)) {
+                tableBody.innerHTML = `<tr><td colspan="8" class="text-center py-4">
+                    <div class="flex items-center justify-center gap-2">
+                        <svg class="animate-spin h-5 w-5 text-orange-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span class="text-orange-600 font-semibold">Toplu silme işlemi devam ediyor... (${successCount}/${filteredSubmissions.length})</span>
+                    </div>
+                </td></tr>`;
+            }
+        } catch (error) {
+            console.error(`Kayıt silinemedi (ID: ${submission.id}):`, error);
+            errorCount++;
+        }
+    }
+
+    // Sonuç mesajı
+    const resultMessage = `Toplu silme işlemi tamamlandı.\n\n` +
+        `✓ Başarılı: ${successCount} kayıt\n` +
+        `${errorCount > 0 ? `✗ Hata: ${errorCount} kayıt` : ''}`;
+
+    await showCustomAlert("Toplu Silme Sonucu", resultMessage);
 }
 
 function downloadSubmissionsAsCsv() {
@@ -933,11 +1032,8 @@ function showCustomAlert(title, message) {
     });
 }
 
+initializeFirebase();
 
     </script>
 </body>
 </html>
-
-
-
-
