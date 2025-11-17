@@ -257,53 +257,38 @@
             }
 
             // 2. Devam eden oturum var mı kontrol et
-            console.log("Devam eden oturum kontrol ediliyor...");
+           console.log("Devam eden oturum kontrol ediliyor...");
             const existingSession = await checkExistingSession(studentKey);
             
             if (existingSession) {
-                console.log("Devam eden oturum bulundu:", existingSession);
-                const shouldResume = await showCustomConfirmation(
-                    `Daha önce bu sınava başlamışsınız.\n\nKalan süre: ${Math.floor(existingSession.timeLeft / 60)} dk ${existingSession.timeLeft % 60} sn\nTamamlanan soru: ${existingSession.currentQuestionIndex + 1}/${quizQuestions.length}\n\nKaldığınız yerden devam etmek ister misiniz?`
-                );
+                console.log("Devam eden oturum bulundu, otomatik olarak yükleniyor:", existingSession);
                 
-                if (shouldResume) {
-                    console.log("Kullanıcı devam etmeyi seçti, oturum yükleniyor...");
-                    // Önceki oturumu yükle
-                    studentData = { 
-                        name: existingSession.name || name, 
-                        number: existingSession.number || number, 
-                        className: existingSession.className || className, 
-                        examCode: existingSession.examCode || examCode 
-                    };
-                    questionOrder = existingSession.questionOrder || [];
-                    selectedAnswers = existingSession.selectedAnswers || Array(quizQuestions.length).fill(null);
-                    currentQuestionIndex = existingSession.currentQuestionIndex || 0;
-                    timeLeft = existingSession.timeLeft || TIME_LIMIT_SECONDS;
-                    focusLossCount = existingSession.focusLossCount || 0;
-                    currentSessionDocId = existingSession.id;
-                    
-                    console.log("Oturum bilgileri:", {
-                        questionOrder,
-                        selectedAnswers,
-                        currentQuestionIndex,
-                        timeLeft,
-                        focusLossCount
-                    });
-                    
-                    showQuiz();
-                    return;
-                } else {
-                    console.log("Kullanıcı yeniden başlamayı seçti, eski oturum siliniyor...");
-                    // Önceki oturumu sil, yeniden başlat
-                    try {
-                        await deleteDoc(doc(db, "active_sessions", existingSession.id));
-                        console.log("Eski oturum silindi");
-                    } catch (error) {
-                        console.error("Eski oturum silinirken hata:", error);
-                    }
-                }
-            } else {
-                console.log("Devam eden oturum bulunamadı, yeni oturum başlatılıyor");
+                // Öğrenciye seçim hakkı verme. Sadece bilgilendir ve devam ettir.
+                await showCustomAlert(
+                    "Oturum Bulundu",
+                    `Daha önce bu sınava başlamışsınız.\n\nKaldığınız yerden otomatik olarak devam ediyorsunuz.\n\nKalan süre: ${Math.floor(existingSession.timeLeft / 60)} dk ${existingSession.timeLeft % 60} sn`
+                );
+
+                console.log("Oturum zorunlu olarak yükleniyor...");
+                // Önceki oturumu yükle
+                studentData = { 
+                    name: existingSession.name || name, 
+                    number: existingSession.number || number, 
+                    className: existingSession.className || className, 
+                    examCode: existingSession.examCode || examCode 
+                };
+                questionOrder = existingSession.questionOrder || [];
+                selectedAnswers = existingSession.selectedAnswers || Array(quizQuestions.length).fill(null);
+                currentQuestionIndex = existingSession.currentQuestionIndex || 0;
+                timeLeft = existingSession.timeLeft || TIME_LIMIT_SECONDS;
+                focusLossCount = existingSession.focusLossCount || 0;
+                currentSessionDocId = existingSession.id;
+                
+                showQuiz(); // Sınavı yükle
+                return; // Yeni oturum başlatmayı engellemek için işlemi burada bitir
+            }
+
+            console.log("Devam eden oturum bulunamadı, yeni oturum başlatılıyor");
             }
 
             // Yeni oturum başlat
@@ -1044,4 +1029,5 @@ initializeFirebase();
     </script>
 </body>
 </html>
+
 
