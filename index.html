@@ -140,12 +140,19 @@
             }
             const shuffled = [...array];
             let n = shuffled.length;
-            while (n > 1) {
+          while (n > 1) {
                 hash = (hash * 9301 + 49297) % 233280;
+                
+                // === EKLEMENİZ GEREKEN KESİN ÇÖZÜM ===
+                if (hash < 0) {
+                    hash += 233280;
+                }
+                // ===================================
+
                 let random = hash / 233280.0;
-                let k = Math.floor(random * n);
-                n--;
-                [shuffled[n], shuffled[k]] = [shuffled[k], shuffled[n]];
+                let k = Math.floor(random * n); // 'ün bir kısmı
+                n--; // 'ün bir kısmı
+                [shuffled[n], shuffled[k]] = [shuffled[k], shuffled[n]]; // 'ün bir kısmı
             }
             return shuffled;
         }
@@ -1037,3 +1044,4 @@ initializeFirebase();
     </script>
 </body>
 </html>
+
