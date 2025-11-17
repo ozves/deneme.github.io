@@ -381,8 +381,11 @@
         }
 
         function showQuiz() {
-            selectedAnswers = Array(quizQuestions.length).fill(null);
-            questionOrder = Array.from({length: quizQuestions.length}, (_, i) => i);
+            // sadece sınav DOM’unu temizle ve değişkenleri sıfırla
+         const container = document.getElementById('questionsContainer');
+         if (container) container.innerHTML = '';
+           selectedAnswers = Array(quizQuestions.length).fill(null);
+           questionOrder = Array.from({length: quizQuestions.length}, (_, i) => i);
             currentQuestionIndex = 0;
             document.getElementById('app').classList.remove('max-w-md');
             document.getElementById('app').classList.add('max-w-3xl');
@@ -939,5 +942,6 @@ function showCustomAlert(title, message) {
     </script>
 </body>
 </html>
+
 
 
