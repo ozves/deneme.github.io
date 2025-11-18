@@ -120,6 +120,20 @@
         "answerHash": 1761405170
     }
 ];
+        // ======= YENİ HASH FONKSİYONU BURAYA EKLENİR =======
+function simpleHash(str) {
+    let hash = 0;
+    // Şıkkı küçük harfe çevirip boşlukları ve özel karakterleri temizliyoruz
+    str = String(str).toLowerCase().trim().replace(/[^a-z0-9ğüşıöç]/g, ''); 
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0; 
+    }
+    return Math.abs(hash); 
+}
+// ====================================================
+
         let selectedAnswers = Array(quizQuestions.length).fill(null);
         let questionOrder = Array.from({length: quizQuestions.length}, (_, i) => i);
         let currentQuestionIndex = 0;
@@ -614,16 +628,41 @@
             }
         }
 
-        function calculateScore() {
-            let correctCount = 0, incorrectCount = 0, emptyCount = 0;
-            quizQuestions.forEach((q, originalIndex) => {
-                const answer = selectedAnswers[originalIndex];
-                if (answer === null) emptyCount++;
-                else if (answer === q.answer) correctCount++;
-                else incorrectCount++;
-            });
-            return { correct: correctCount, incorrect: incorrectCount, empty: emptyCount, total: quizQuestions.length, score: correctCount * 100 / quizQuestions.length };
+       // ====== calculateScore fonksiyonunun tamamını bununla değiştirin ======
+// ====== calculateScore fonksiyonunun tamamını bununla değiştirin ======
+function calculateScore() { 
+    let correctCount = 0, incorrectCount = 0, emptyCount = 0;
+
+    quizQuestions.forEach((q, originalIndex) => { 
+        const selectedAnswerString = selectedAnswers[originalIndex];
+
+        if (selectedAnswerString === null) {
+            emptyCount++;
+        } else {
+            // Öğrencinin seçtiği cevabı (metin) hash'le
+            const selectedAnswerHash = simpleHash(selectedAnswerString); 
+            
+            // Öğrenci cevabının hash'i, kayıtlı doğru cevabın hash'i ile karşılaştırılır.
+            if (selectedAnswerHash === q.answerHash) {
+                correctCount++;
+            } else {
+                incorrectCount++;
+            }
         }
+    });
+
+    const totalQuestions = quizQuestions.length;
+    const score = (correctCount / totalQuestions) * 100;
+    return { correct: correctCount, incorrect: incorrectCount, empty: emptyCount, score: score, total: totalQuestions };
+}
+// ====================================================================
+    });
+
+    const totalQuestions = quizQuestions.length;
+    const score = (correctCount / totalQuestions) * 100;
+    return { correct: correctCount, incorrect: incorrectCount, empty: emptyCount, score: score, total: totalQuestions };
+}
+// ====================================================================
 
         async function saveSubmission(results) {
             if (!db || isTeacherMode) {
@@ -1031,6 +1070,7 @@ initializeFirebase();
     </script>
 </body>
 </html>
+
 
 
 
