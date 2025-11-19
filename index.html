@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sınav Sistemi V7 (Çoklu Sınav)</title>
+    <title>Sınav Sistemi V8 (Gelişmiş Yönetim)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -61,8 +61,7 @@
         let db, auth;
         let isAuthReady = false, isDbConnected = false;
         
-        // Sabit Yönetici Şifresi
-        const ADMIN_MASTER_CODE = "123456"; 
+        let adminMasterCode = "123456"; // Varsayılan Yönetici Şifresi
 
         // Sınava Özgü Konfigürasyonlar (Girişte Yüklenecek)
         let currentExamConfig = {
@@ -115,8 +114,10 @@
         async function checkConnectivity() {
             const statusDiv = document.getElementById('connectionStatus');
             try {
-                // Sadece veritabanına erişimi kontrol et
-                await getDoc(doc(db, "exam_settings", "DUMMY_CHECK")); 
+                // Veritabanına erişimi ve Yönetici Şifresini kontrol et
+                const adminSnap = await getDoc(doc(db, "exam_settings", "admin_config"));
+                if (adminSnap.exists()) adminMasterCode = adminSnap.data().master_code || "123456";
+
                 isDbConnected = true;
                 statusDiv.innerHTML = "🟢 Veritabanı Bağlı (Canlı Mod)";
                 statusDiv.className = "mb-4 text-xs font-bold text-center p-2 rounded border bg-green-100 text-green-800 border-green-300";
@@ -133,8 +134,8 @@
         async function fetchExamData(code) {
             if (!isDbConnected) {
                 alert("Veritabanı bağlı olmadığı için sınav yüklenemedi. Varsayılan modda devam ediliyor.");
-                quizQuestions = []; // Soru havuzunu sıfırla
-                return true; // Hata olmasa bile default config ile devam et
+                quizQuestions = []; 
+                return true; 
             }
             try {
                 const configSnap = await getDoc(getConfigRef(code));
@@ -198,7 +199,6 @@
 
             if (!name || !number || !className || !code) return alert("Lütfen tüm alanları doldurun.");
             
-            // Yeni: Sınav koduna göre ayarları ve soruları çek
             const success = await fetchExamData(code);
             if (!success) return; 
 
@@ -225,7 +225,6 @@
         }
 
         function restoreSession(session) {
-            // Önemli: Restore edilen oturumun soru listesinin yeni yüklenen soru listesiyle eşleştiği varsayılır.
             questionOrder = session.questionOrder || [];
             selectedAnswers = session.selectedAnswers || [];
             currentQuestionIndex = session.currentQuestionIndex || 0;
@@ -244,7 +243,7 @@
             currentSessionDocId = null;
         }
 
-        // --- SINAV EKRANI ---
+        // --- SINAV EKRANI VE İŞLEMLERİ (Önceki versiyonlarla aynı mantık) ---
         function showQuiz() {
             document.getElementById('connectionStatus').classList.add('hidden');
             document.getElementById('app').className = 'app-card max-w-3xl';
@@ -277,9 +276,6 @@
             };
         }
 
-        // ... (renderQuestion, startTimer, setupFocusCheck, startAutoSave, saveProgress, finishQuiz, showResult fonksiyonları değişmedi) ...
-        // Sadece kullanılan time_limit değeri currentExamConfig.time_limit olarak güncellendi.
-        
         function renderQuestion(idx) {
             const realIdx = questionOrder[idx];
             const q = quizQuestions[realIdx];
@@ -317,7 +313,7 @@
 
         function startTimer() {
             if (timerInterval) clearInterval(timerInterval);
-            timeLeft = timeLeft || currentExamConfig.time_limit; // Restore edilen süreyi kullan
+            timeLeft = timeLeft || currentExamConfig.time_limit; 
             timerInterval = setInterval(() => {
                 timeLeft--;
                 const m = Math.floor(timeLeft / 60), s = timeLeft % 60;
@@ -394,7 +390,6 @@
 
             if(isDbConnected) {
                 try {
-                    // Sadece bu sınav kodundaki kişileri çek
                     const q = query(collection(db, "quiz_submissions"), where("examCode", "==", data.examCode));
                     const snap = await getDocs(q);
                     const scores = snap.docs.map(d => parseFloat(d.data().score)).sort((a,b) => b-a);
@@ -441,7 +436,7 @@
                 </div>
             `;
             document.getElementById('login').onclick = () => {
-                if (document.getElementById('pass').value === ADMIN_MASTER_CODE) { // Sabit admin şifresi
+                if (document.getElementById('pass').value === adminMasterCode) {
                     isTeacherMode = true;
                     showDashboard();
                 } else alert("Hatalı şifre!");
@@ -502,10 +497,15 @@
                         </div>
                         <hr>
                         <div><label class="text-xs font-bold">Öğretmen Adı</label><input id="setTeacher" class="w-full p-2 border rounded"></div>
-                        <div><label class="text-xs font-bold">Sınav Şifresi (Örn: 1234)</label><input id="setPass" class="w-full p-2 border rounded"></div>
                         <div><label class="text-xs font-bold">Süre (Dakika)</label><input id="setTime" type="number" class="w-full p-2 border rounded"></div>
                         <div><label class="text-xs font-bold">Açıklama</label><textarea id="setDesc" rows="3" class="w-full p-2 border rounded"></textarea></div>
                         <button id="saveSettingsBtn" class="w-full bg-indigo-600 text-white py-3 rounded font-bold shadow">KAYDET / OLUŞTUR</button>
+
+                        <hr>
+                        <h3 class="font-bold text-lg text-red-600">Yönetici Paneli Şifre Güncelleme</h3>
+                        <p class="text-xs text-gray-600">Mevcut Yönetici Şifresi: <span class="font-bold text-red-700">${adminMasterCode}</span></p>
+                        <div><label class="text-xs font-bold">Yeni Yönetici Şifresi</label><input id="newAdminPass" type="password" class="w-full p-2 border rounded" placeholder="Yeni şifrenizi girin"></div>
+                        <button id="saveAdminPassBtn" class="w-full bg-red-600 text-white py-3 rounded font-bold shadow">YÖNETİCİ ŞİFRESİNİ DEĞİŞTİR</button>
                     </div>
                 </div>
 
@@ -536,13 +536,11 @@
                     if (snap.exists()) {
                         const data = snap.data();
                         document.getElementById('setTeacher').value = data.teacher_name;
-                        document.getElementById('setPass').value = data.teacher_code;
                         document.getElementById('setTime').value = Math.floor(data.time_limit/60);
                         document.getElementById('setDesc').value = data.exam_description;
                         alert(`'${code}' ayarları yüklendi.`);
                     } else {
                         document.getElementById('setTeacher').value = "";
-                        document.getElementById('setPass').value = "";
                         document.getElementById('setTime').value = 60;
                         document.getElementById('setDesc').value = "Yeni sınav ayarları";
                         alert(`'${code}' ayarları bulunamadı. Yeni oluşturulacak.`);
@@ -557,12 +555,28 @@
                 try {
                     await setDoc(getConfigRef(code), {
                         teacher_name: document.getElementById('setTeacher').value || "Bilinmiyor",
-                        teacher_code: document.getElementById('setPass').value || "1111",
                         time_limit: parseInt(document.getElementById('setTime').value)*60 || 3600,
                         exam_description: document.getElementById('setDesc').value || "Açıklama yok"
                     }, {merge: true});
                     alert(`Sınav Kodu '${code}' başarıyla kaydedildi!`);
                 } catch(e) { alert("Kaydetme Hatası: " + e.message); }
+            };
+            
+            // YENİ: Yönetici Şifresi Değiştirme
+            document.getElementById('saveAdminPassBtn').onclick = async () => {
+                const newPass = document.getElementById('newAdminPass').value;
+                if (!newPass || newPass.length < 4) return alert("Şifre en az 4 karakter olmalıdır.");
+
+                if(confirm(`Yönetici Paneli Şifresi "${newPass}" olarak değiştirilecektir. Emin misiniz?`)) {
+                    try {
+                        await setDoc(doc(db, "exam_settings", "admin_config"), { master_code: newPass });
+                        adminMasterCode = newPass; // Şifreyi güncelleyelim
+                        alert("Yeni şifre kaydedildi! Lütfen sayfayı yenileyin.");
+                        document.getElementById('newAdminPass').value = '';
+                    } catch(e) {
+                        alert("Yönetici Şifresini kaydederken hata: " + e.message);
+                    }
+                }
             };
 
             // Sorular sekmesi işlevi
@@ -591,8 +605,7 @@
             setupResultsTable();
         }
 
-        // ... (setupResultsTable fonksiyonu değişmedi, sonuçları otomatik tüm kodlardan çekiyor) ...
-
+        // ... (setupResultsTable ve diğer yardımcı fonksiyonlar aynı kaldı) ...
         function setupResultsTable() {
             const tbody = document.getElementById('resTable');
             const statsArea = document.getElementById('statsArea');
@@ -608,7 +621,6 @@
                     (s.name||'').toLowerCase().includes(fName)
                 );
 
-                // İstatistikleri Hesapla
                 const classStats = {};
                 filtered.forEach(s => {
                     const cls = s.className || "Belirsiz";
@@ -634,7 +646,6 @@
                 });
                 statsArea.innerHTML = statsHtml;
 
-                // Tabloyu Doldur
                 tbody.innerHTML = filtered.map(s => {
                     const date = s.timestamp ? new Date(s.timestamp.seconds*1000).toLocaleString('tr-TR') : '-';
                     const mins = Math.floor((s.timeSpent||0)/60);
