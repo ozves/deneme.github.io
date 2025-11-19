@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sınav Sistemi V8 (Gelişmiş Yönetim)</title>
+    <title>Sınav Sistemi V9 (Kurumsal Yönetim)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -62,11 +62,12 @@
         let isAuthReady = false, isDbConnected = false;
         
         let adminMasterCode = "123456"; // Varsayılan Yönetici Şifresi
+        let systemPreparerName = "Sistem Yöneticisi"; // YENİ: Sistem Geneli Hazırlayıcı Adı
 
         // Sınava Özgü Konfigürasyonlar (Girişte Yüklenecek)
         let currentExamConfig = {
             exam_code: "DEFAULT",
-            teacher_name: "Sistem Yöneticisi",
+            teacher_name: "Sistem Yöneticisi", // Bu artık sadece açıklama için kullanılıyor
             time_limit: 600,
             exam_description: "Varsayılan sınav. Lütfen yeni bir sınav kodu oluşturun."
         };
@@ -114,9 +115,13 @@
         async function checkConnectivity() {
             const statusDiv = document.getElementById('connectionStatus');
             try {
-                // Veritabanına erişimi ve Yönetici Şifresini kontrol et
+                // Veritabanına erişimi, Yönetici Şifresini ve Hazırlayıcı Adını kontrol et
                 const adminSnap = await getDoc(doc(db, "exam_settings", "admin_config"));
-                if (adminSnap.exists()) adminMasterCode = adminSnap.data().master_code || "123456";
+                if (adminSnap.exists()) {
+                    const data = adminSnap.data();
+                    adminMasterCode = data.master_code || "123456";
+                    systemPreparerName = data.preparer_name || "Sistem Yöneticisi"; // Hazırlayıcı adını yükle
+                }
 
                 isDbConnected = true;
                 statusDiv.innerHTML = "🟢 Veritabanı Bağlı (Canlı Mod)";
@@ -171,9 +176,8 @@
             document.getElementById('mainContentArea').innerHTML = `
                 <div class="space-y-4">
                     <div class="text-center p-2 bg-indigo-50 rounded-lg border border-indigo-100">
-                        <p class="text-xs text-gray-500">Öğretmen</p>
-                        <p class="font-bold text-indigo-700">${currentExamConfig.teacher_name}</p>
-                    </div>
+                        <p class="text-xs text-gray-500">Sınavı Hazırlayan</p>
+                        <p class="font-bold text-indigo-700">${systemPreparerName}</p> </div>
                     <div class="bg-yellow-50 border border-yellow-200 p-3 rounded-lg text-sm text-yellow-800">
                         <p class="font-bold mb-1">⚠️ Sınav Bilgisi:</p>
                         <p class="mb-2">${currentExamConfig.exam_description}</p>
@@ -477,7 +481,7 @@
                                     <th class="p-3 text-left font-bold text-gray-600">Puan</th>
                                     <th class="p-3 text-left font-bold text-gray-600">D/Y/B</th>
                                     <th class="p-3 text-left font-bold text-gray-600">Süre</th>
-                                    <th class="p-3 text-left font-bold text-gray-600">IP Adresi</th>
+                                    <th class="p-3 text-left font-bold text-gray-600">Ayrılma (Kez)</th> <th class="p-3 text-left font-bold text-gray-600">IP Adresi</th>
                                     <th class="p-3 text-left font-bold text-gray-600">Tarih</th>
                                     <th class="p-3 text-left font-bold text-gray-600">İşlem</th>
                                 </tr>
@@ -496,17 +500,18 @@
                             <button id="loadSettingsBtn" class="mt-1 w-full bg-gray-200 text-gray-800 py-2 rounded text-sm">Ayarları Yükle</button>
                         </div>
                         <hr>
-                        <div><label class="text-xs font-bold">Öğretmen Adı</label><input id="setTeacher" class="w-full p-2 border rounded"></div>
-                        <div><label class="text-xs font-bold">Süre (Dakika)</label><input id="setTime" type="number" class="w-full p-2 border rounded"></div>
+                        <div><label class="text-xs font-bold">Sınavın Uygulayıcısı (Bu Sınava Özel)</label><input id="setTeacher" class="w-full p-2 border rounded"></div> <div><label class="text-xs font-bold">Süre (Dakika)</label><input id="setTime" type="number" class="w-full p-2 border rounded"></div>
                         <div><label class="text-xs font-bold">Açıklama</label><textarea id="setDesc" rows="3" class="w-full p-2 border rounded"></textarea></div>
                         <button id="saveSettingsBtn" class="w-full bg-indigo-600 text-white py-3 rounded font-bold shadow">KAYDET / OLUŞTUR</button>
 
                         <hr>
-                        <h3 class="font-bold text-lg text-red-600">Yönetici Paneli Şifre Güncelleme</h3>
+                        <h3 class="font-bold text-lg text-red-600">Yönetici Ayarları</h3>
                         <p class="text-xs text-gray-600">Mevcut Yönetici Şifresi: <span class="font-bold text-red-700">${adminMasterCode}</span></p>
+                        
                         <div><label class="text-xs font-bold">Yeni Yönetici Şifresi</label><input id="newAdminPass" type="password" class="w-full p-2 border rounded" placeholder="Yeni şifrenizi girin"></div>
-                        <button id="saveAdminPassBtn" class="w-full bg-red-600 text-white py-3 rounded font-bold shadow">YÖNETİCİ ŞİFRESİNİ DEĞİŞTİR</button>
-                    </div>
+                        <button id="saveAdminPassBtn" class="w-full bg-red-600 text-white py-3 rounded font-bold shadow mb-4">YÖNETİCİ ŞİFRESİNİ DEĞİŞTİR</button>
+
+                        <div><label class="text-xs font-bold text-indigo-600">Sistemin Ana Hazırlayıcısı/Kurucusu</label><input id="systemPrepName" class="w-full p-2 border rounded" placeholder="Giriş ekranında görünecek ad (Örn: Ahmet Öğretmen)"></div> <button id="saveSystemPrepBtn" class="w-full bg-indigo-600 text-white py-3 rounded font-bold shadow">HAZIRLAYICI ADINI GÜNCELLE</button> </div>
                 </div>
 
                 <div id="tab-questions" class="tab-content hidden">
@@ -554,7 +559,7 @@
 
                 try {
                     await setDoc(getConfigRef(code), {
-                        teacher_name: document.getElementById('setTeacher').value || "Bilinmiyor",
+                        teacher_name: document.getElementById('setTeacher').value || "", // Bu alan artık opsiyonel/açıklama için
                         time_limit: parseInt(document.getElementById('setTime').value)*60 || 3600,
                         exam_description: document.getElementById('setDesc').value || "Açıklama yok"
                     }, {merge: true});
@@ -562,15 +567,15 @@
                 } catch(e) { alert("Kaydetme Hatası: " + e.message); }
             };
             
-            // YENİ: Yönetici Şifresi Değiştirme
+            // YÖNETİCİ ŞİFRESİ DEĞİŞTİRME
             document.getElementById('saveAdminPassBtn').onclick = async () => {
                 const newPass = document.getElementById('newAdminPass').value;
                 if (!newPass || newPass.length < 4) return alert("Şifre en az 4 karakter olmalıdır.");
 
                 if(confirm(`Yönetici Paneli Şifresi "${newPass}" olarak değiştirilecektir. Emin misiniz?`)) {
                     try {
-                        await setDoc(doc(db, "exam_settings", "admin_config"), { master_code: newPass });
-                        adminMasterCode = newPass; // Şifreyi güncelleyelim
+                        await setDoc(doc(db, "exam_settings", "admin_config"), { master_code: newPass }, {merge: true});
+                        adminMasterCode = newPass; 
                         alert("Yeni şifre kaydedildi! Lütfen sayfayı yenileyin.");
                         document.getElementById('newAdminPass').value = '';
                     } catch(e) {
@@ -578,6 +583,25 @@
                     }
                 }
             };
+            
+            // YENİ: Sistemin Ana Hazırlayıcı Adını Değiştirme
+            document.getElementById('systemPrepName').value = systemPreparerName;
+
+            document.getElementById('saveSystemPrepBtn').onclick = async () => {
+                const newPrepName = document.getElementById('systemPrepName').value.trim();
+                if (!newPrepName) return alert("Hazırlayıcı adı boş bırakılamaz.");
+
+                if(confirm(`Sistemin Ana Hazırlayıcı adı "${newPrepName}" olarak değiştirilecektir. Emin misiniz?`)) {
+                    try {
+                        await setDoc(doc(db, "exam_settings", "admin_config"), { preparer_name: newPrepName }, {merge: true});
+                        systemPreparerName = newPrepName;
+                        alert("Hazırlayıcı adı kaydedildi! Değişikliğin giriş ekranına yansıması için sayfayı yenileyin.");
+                    } catch(e) {
+                        alert("Hazırlayıcı adını kaydederken hata: " + e.message);
+                    }
+                }
+            };
+
 
             // Sorular sekmesi işlevi
             document.getElementById('loadSampleBtn').onclick = () => {
@@ -605,7 +629,7 @@
             setupResultsTable();
         }
 
-        // ... (setupResultsTable ve diğer yardımcı fonksiyonlar aynı kaldı) ...
+        // --- SONUÇ TABLOSU (Ayrılma Sütunu Eklendi) ---
         function setupResultsTable() {
             const tbody = document.getElementById('resTable');
             const statsArea = document.getElementById('statsArea');
@@ -658,7 +682,7 @@
                             <td class="p-3 font-bold ${parseFloat(s.score)>=50?'text-green-600':'text-red-600'}">${s.score}</td>
                             <td class="p-3 text-xs">${s.correct}D / ${s.incorrect}Y / ${s.empty}B</td>
                             <td class="p-3 text-xs text-gray-500">${mins} dk</td>
-                            <td class="p-3 text-xs font-mono bg-gray-50 rounded">${s.ipAddress || '-'}</td>
+                            <td class="p-3 text-xs font-bold ${s.focusLossCount>0 ? 'text-red-600 bg-red-50 rounded-md p-1' : 'text-green-600'}">${s.focusLossCount || 0}</td> <td class="p-3 text-xs font-mono bg-gray-50 rounded">${s.ipAddress || '-'}</td>
                             <td class="p-3 text-xs text-gray-500">${date}</td>
                             <td class="p-3 flex gap-2">
                                 <button onclick="showGraph('${s.number}','${s.name}')" class="text-blue-600 text-xs hover:underline font-bold">Grafik</button>
@@ -691,9 +715,9 @@
                 const fName = (document.getElementById('fName')?.value||'').toLowerCase();
                 const filtered = allSubmissions.filter(s => (s.examCode||'').toLowerCase().includes(fCode) && (s.className||'').toLowerCase().includes(fClass) && (s.name||'').toLowerCase().includes(fName));
                 
-                let csv = "\uFEFFSinif,No,Ad Soyad,Kod,Puan,Dogru,Yanlis,Bos,Sure(dk),IP,Tarih\n";
+                let csv = "\uFEFFSinif,No,Ad Soyad,Kod,Puan,Dogru,Yanlis,Bos,Sure(dk),Ayrilma(Kez),IP,Tarih\n";
                 filtered.forEach(s => {
-                    csv += `${s.className},${s.number},"${s.name}",${s.examCode},${s.score},${s.correct},${s.incorrect},${s.empty},${Math.floor((s.timeSpent||0)/60)},${s.ipAddress},"${new Date(s.timestamp?.seconds*1000).toLocaleString()}"\n`;
+                    csv += `${s.className},${s.number},"${s.name}",${s.examCode},${s.score},${s.correct},${s.incorrect},${s.empty},${Math.floor((s.timeSpent||0)/60)},${s.focusLossCount},${s.ipAddress},"${new Date(s.timestamp?.seconds*1000).toLocaleString()}"\n`;
                 });
                 const link = document.createElement("a");
                 link.href = encodeURI("data:text/csv;charset=utf-8," + csv);
