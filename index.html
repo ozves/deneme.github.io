@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sınav Sistemi V9 (Kurumsal Yönetim)</title>
+    <title>Sınav Sistemi V10 (Sadeleştirilmiş Giriş)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -62,7 +62,7 @@
         let isAuthReady = false, isDbConnected = false;
         
         let adminMasterCode = "123456"; // Varsayılan Yönetici Şifresi
-        let systemPreparerName = "Sistem Yöneticisi"; // YENİ: Sistem Geneli Hazırlayıcı Adı
+        let systemPreparerName = "Sistem Yöneticisi"; // Sistem Geneli Hazırlayıcı Adı
 
         // Sınava Özgü Konfigürasyonlar (Girişte Yüklenecek)
         let currentExamConfig = {
@@ -177,13 +177,14 @@
                 <div class="space-y-4">
                     <div class="text-center p-2 bg-indigo-50 rounded-lg border border-indigo-100">
                         <p class="text-xs text-gray-500">Sınavı Hazırlayan</p>
-                        <p class="font-bold text-indigo-700">${systemPreparerName}</p> </div>
+                        <p class="font-bold text-indigo-700">${systemPreparerName}</p>
+                    </div>
                     <div class="bg-yellow-50 border border-yellow-200 p-3 rounded-lg text-sm text-yellow-800">
                         <p class="font-bold mb-1">⚠️ Sınav Bilgisi:</p>
                         <p class="mb-2">${currentExamConfig.exam_description}</p>
                         <p class="font-semibold">Süre: ${timeInMinutes} Dakika</p>
                     </div>
-                    <input id="examCodeInput" type="text" placeholder="Sınav Kodu (Örn: 9A_BIYOLOJI)" class="w-full p-3 border rounded-lg uppercase">
+                    <input id="examCodeInput" type="text" placeholder="Sınav Kodu" class="w-full p-3 border rounded-lg uppercase">
                     <input id="nameInput" type="text" placeholder="Ad Soyad" class="w-full p-3 border rounded-lg">
                     <input id="numberInput" type="number" placeholder="Okul No" class="w-full p-3 border rounded-lg">
                     <input id="classInput" type="text" placeholder="Sınıf (Örn: 10A)" class="w-full p-3 border rounded-lg">
@@ -481,7 +482,8 @@
                                     <th class="p-3 text-left font-bold text-gray-600">Puan</th>
                                     <th class="p-3 text-left font-bold text-gray-600">D/Y/B</th>
                                     <th class="p-3 text-left font-bold text-gray-600">Süre</th>
-                                    <th class="p-3 text-left font-bold text-gray-600">Ayrılma (Kez)</th> <th class="p-3 text-left font-bold text-gray-600">IP Adresi</th>
+                                    <th class="p-3 text-left font-bold text-gray-600">Ayrılma (Kez)</th>
+                                    <th class="p-3 text-left font-bold text-gray-600">IP Adresi</th>
                                     <th class="p-3 text-left font-bold text-gray-600">Tarih</th>
                                     <th class="p-3 text-left font-bold text-gray-600">İşlem</th>
                                 </tr>
@@ -500,7 +502,8 @@
                             <button id="loadSettingsBtn" class="mt-1 w-full bg-gray-200 text-gray-800 py-2 rounded text-sm">Ayarları Yükle</button>
                         </div>
                         <hr>
-                        <div><label class="text-xs font-bold">Sınavın Uygulayıcısı (Bu Sınava Özel)</label><input id="setTeacher" class="w-full p-2 border rounded"></div> <div><label class="text-xs font-bold">Süre (Dakika)</label><input id="setTime" type="number" class="w-full p-2 border rounded"></div>
+                        <div><label class="text-xs font-bold">Sınavın Uygulayıcısı (Bu Sınava Özel)</label><input id="setTeacher" class="w-full p-2 border rounded"></div>
+                        <div><label class="text-xs font-bold">Süre (Dakika)</label><input id="setTime" type="number" class="w-full p-2 border rounded"></div>
                         <div><label class="text-xs font-bold">Açıklama</label><textarea id="setDesc" rows="3" class="w-full p-2 border rounded"></textarea></div>
                         <button id="saveSettingsBtn" class="w-full bg-indigo-600 text-white py-3 rounded font-bold shadow">KAYDET / OLUŞTUR</button>
 
@@ -511,7 +514,9 @@
                         <div><label class="text-xs font-bold">Yeni Yönetici Şifresi</label><input id="newAdminPass" type="password" class="w-full p-2 border rounded" placeholder="Yeni şifrenizi girin"></div>
                         <button id="saveAdminPassBtn" class="w-full bg-red-600 text-white py-3 rounded font-bold shadow mb-4">YÖNETİCİ ŞİFRESİNİ DEĞİŞTİR</button>
 
-                        <div><label class="text-xs font-bold text-indigo-600">Sistemin Ana Hazırlayıcısı/Kurucusu</label><input id="systemPrepName" class="w-full p-2 border rounded" placeholder="Giriş ekranında görünecek ad (Örn: Ahmet Öğretmen)"></div> <button id="saveSystemPrepBtn" class="w-full bg-indigo-600 text-white py-3 rounded font-bold shadow">HAZIRLAYICI ADINI GÜNCELLE</button> </div>
+                        <div><label class="text-xs font-bold text-indigo-600">Sistemin Ana Hazırlayıcısı/Kurucusu</label><input id="systemPrepName" class="w-full p-2 border rounded" placeholder="Giriş ekranında görünecek ad (Örn: Ahmet Öğretmen)"></div>
+                        <button id="saveSystemPrepBtn" class="w-full bg-indigo-600 text-white py-3 rounded font-bold shadow">HAZIRLAYICI ADINI GÜNCELLE</button>
+                    </div>
                 </div>
 
                 <div id="tab-questions" class="tab-content hidden">
@@ -559,7 +564,7 @@
 
                 try {
                     await setDoc(getConfigRef(code), {
-                        teacher_name: document.getElementById('setTeacher').value || "", // Bu alan artık opsiyonel/açıklama için
+                        teacher_name: document.getElementById('setTeacher').value || "", 
                         time_limit: parseInt(document.getElementById('setTime').value)*60 || 3600,
                         exam_description: document.getElementById('setDesc').value || "Açıklama yok"
                     }, {merge: true});
@@ -584,7 +589,7 @@
                 }
             };
             
-            // YENİ: Sistemin Ana Hazırlayıcı Adını Değiştirme
+            // Sistemin Ana Hazırlayıcı Adını Değiştirme
             document.getElementById('systemPrepName').value = systemPreparerName;
 
             document.getElementById('saveSystemPrepBtn').onclick = async () => {
@@ -682,7 +687,8 @@
                             <td class="p-3 font-bold ${parseFloat(s.score)>=50?'text-green-600':'text-red-600'}">${s.score}</td>
                             <td class="p-3 text-xs">${s.correct}D / ${s.incorrect}Y / ${s.empty}B</td>
                             <td class="p-3 text-xs text-gray-500">${mins} dk</td>
-                            <td class="p-3 text-xs font-bold ${s.focusLossCount>0 ? 'text-red-600 bg-red-50 rounded-md p-1' : 'text-green-600'}">${s.focusLossCount || 0}</td> <td class="p-3 text-xs font-mono bg-gray-50 rounded">${s.ipAddress || '-'}</td>
+                            <td class="p-3 text-xs font-bold ${s.focusLossCount>0 ? 'text-red-600 bg-red-50 rounded-md p-1' : 'text-green-600'}">${s.focusLossCount || 0}</td>
+                            <td class="p-3 text-xs font-mono bg-gray-50 rounded">${s.ipAddress || '-'}</td>
                             <td class="p-3 text-xs text-gray-500">${date}</td>
                             <td class="p-3 flex gap-2">
                                 <button onclick="showGraph('${s.number}','${s.name}')" class="text-blue-600 text-xs hover:underline font-bold">Grafik</button>
