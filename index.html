@@ -510,8 +510,18 @@
             quizQuestions.forEach((q, idx) => {
                 const realIdx = questionOrder[idx];
                 const ans = selectedAnswers[realIdx];
-                if (!ans) e++; else if (ans === q.answer) c++; else i++;
+                
+                // --- GÜNCELLENMİŞ KARŞILAŞTIRMA MANTIĞI ---
+                // Cevaplar önce stringe çevrilir, boşlukları temizlenir ve küçük harfe dönüştürülür.
+                const studentAns = String(ans || '').trim().toLowerCase();
+                const correctAns = String(q.answer || '').trim().toLowerCase();
+
+                if (!ans) e++; 
+                else if (studentAns === correctAns) c++; // GÜVENİLİR KARŞILAŞTIRMA
+                else i++;
+                // ------------------------------------------
             });
+            
             const score = (c * 100 / quizQuestions.length).toFixed(2);
 
             let ip = "Bilinmiyor";
@@ -967,3 +977,4 @@
     </script>
 </body>
 </html>
+
