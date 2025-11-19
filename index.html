@@ -500,27 +500,40 @@
             } catch(e) {}
         }
 
-        async function finishQuiz(force = false) {
+       async function finishQuiz(force = false) {
             clearInterval(timerInterval); clearInterval(autoSaveInterval); window.onblur = null;
             if (!force && !confirm("Sınavı bitirmek istediğinize emin misiniz?")) { startTimer(); setupFocusCheck(); return; }
 
             document.getElementById('mainContentArea').innerHTML = `<div class="text-center py-10 font-bold text-gray-600">Sonuçlar işleniyor...</div>`;
             
             let c = 0, i = 0, e = 0;
-            quizQuestions.forEach((q, idx) => {
-                const realIdx = questionOrder[idx];
-                const ans = selectedAnswers[realIdx];
+            
+            // --- KESİN ÇÖZÜM: YENİ PUANLAMA MANTIĞI ---
+            // Karıştırılmış sırayı (questionOrder) kullanarak doğru soruya erişiyoruz.
+            for (let idx = 0; idx < quizQuestions.length; idx++) {
                 
-                // --- GÜNCELLENMİŞ KARŞILAŞTIRMA MANTIĞI ---
-                // Cevaplar önce stringe çevrilir, boşlukları temizlenir ve küçük harfe dönüştürülür.
-                const studentAns = String(ans || '').trim().toLowerCase();
-                const correctAns = String(q.answer || '').trim().toLowerCase();
+                // realQIdx: Karıştırılan sırada (idx) gösterilen sorunun orijinal indeksi (Örn: 5. soru)
+                const realQIdx = questionOrder[idx]; 
+                
+                // Doğru Cevap: Orijinal 5. sorunun cevabıdır.
+                const correctQuestion = quizQuestions[realQIdx]; 
+                
+                // Öğrencinin Cevabı: selectedAnswers dizisinin 5. kutusundaki cevaptır.
+                const studentAnsVal = selectedAnswers[realQIdx]; 
 
-                if (!ans) e++; 
-                else if (studentAns === correctAns) c++; // GÜVENİLİR KARŞILAŞTIRMA
-                else i++;
-                // ------------------------------------------
-            });
+                // Güvenilir Karşılaştırma için hazırlık
+                const studentAns = String(studentAnsVal || '').trim().toLowerCase();
+                const correctAns = String(correctQuestion.answer || '').trim().toLowerCase();
+                
+                if (!studentAnsVal) { // Öğrenci cevabı boş bıraktıysa
+                    e++;
+                } else if (studentAns === correctAns) { // Cevaplar eşleşiyorsa (Boşluk ve harf hassasiyeti yok)
+                    c++;
+                } else { // Cevaplar eşleşmiyorsa
+                    i++;
+                }
+            }
+            // ------------------------------------------
             
             const score = (c * 100 / quizQuestions.length).toFixed(2);
 
@@ -541,7 +554,6 @@
             }
             showResult(finalData);
         }
-
         async function showResult(data) {
             document.getElementById('app').className = 'app-card max-w-md';
             document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-bold">Sınav Bitti</h1>';
@@ -977,4 +989,5 @@
     </script>
 </body>
 </html>
+
 
