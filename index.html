@@ -1,1 +1,1210 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sınav Sistemi V19 (Pro - Optimize)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script> 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script> 
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;}
+        .app-card { background-color:white;padding:2.5rem;border-radius:1.5rem;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1),0 4px 6px -2px rgba(0,0,0,0.05);max-width:450px;width:90%;transition:all .3s;position:relative; display: flex; flex-direction: column;}
+        .header-bg { background: linear-gradient(135deg,#4f46e5 0%,#818cf8 100%); color:white;padding:1rem 0;border-radius:1rem 1rem 0 0;margin:-2.5rem -2.5rem 1.5rem -2.5rem;text-align:center;}
+        .button{transition:all .2s;box-shadow:0 4px 6px rgba(0,0,0,0.1)}
+        .button:hover{transform:translateY(-1px);box-shadow:0 6px 10px rgba(0,0,0,0.15)}
+        .teacher-mode { max-width: 1400px !important; width: 98% !important; } 
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .paste-area { 
+            border: 2px dashed #cbd5e0; 
+            border-radius: 0.5rem; 
+            padding: 1rem; 
+            background-color: #f9fafb; 
+            cursor: text;
+            min-height: 120px;
+        }
+        .paste-area:focus { outline: none; border-color: #4f46e5; }
+        /* Yeni Tablar için Stil */
+        .stat-tab-btn { padding: 8px 16px; border-bottom: 2px solid transparent; color: #6b7280; font-weight: 600; cursor: pointer; }
+        .stat-tab-btn.active { border-color: #4f46e5; color: #4f46e5; }
+    </style>
+</head>
+<body>
+
+    <div id="app" class="app-card">
+        <div id="loginHeader" class="header-bg">
+            <h1 class="text-2xl font-extrabold">Öğrenci Girişi</h1>
+        </div>
+        
+        <div id="connectionStatus" class="hidden mb-4 text-xs font-bold text-center p-2 rounded border"></div>
+        
+        <div id="mainContentArea" class="flex-grow flex flex-col">
+            <div id="loadingIndicator" class="text-center py-10">
+                <div class="loader"></div>
+                <p id="loadingText" class="text-sm text-gray-500 mt-4 font-bold">Sistem Başlatılıyor...</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="customModal" class="fixed inset-0 bg-gray-900 bg-opacity-70 hidden items-center justify-center p-4 z-50">
+        <div id="modalContent" class="bg-white rounded-xl p-6 max-w-4xl w-full text-center shadow-2xl overflow-y-auto max-h-[95vh]"></div>
+    </div>
+
+    <script type="module">
+       
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getFirestore, doc, collection, getDocs, deleteDoc, getDoc, addDoc, updateDoc, setDoc, orderBy, limit, query, where, serverTimestamp
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { 
+            getAuth, signInAnonymously, onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyCHhFAHbWnclad6yFuI-Pw9gX6F_Dx1B2c",
+            authDomain: "online-sinav-b3644.firebaseapp.com",
+            projectId: "online-sinav-b3644",
+            storageBucket: "online-sinav-b3644.firebasestorage.app",
+            messagingSenderId: "965507531268",
+            appId: "1:965507531268:web:94cfd13774a40b6cf16b51"
+        };
+
+        // --- Global Değişkenler ---
+        let db, auth;
+        let isAuthReady = false, isDbConnected = false;
+        let adminMasterCode = null;
+        let systemPreparerName = "Sistem Yöneticisi";
+
+        let currentExamConfig = { exam_code: "DEFAULT", teacher_name: "Yükleniyor...", time_limit: 600, exam_description: "..." };
+        let quizQuestions = [];
+        let studentList = [];
+        
+        // Sınav Oturum Değişkenleri
+        let studentData = {};
+        let selectedAnswers = [];
+        let questionOrder = [];
+        let currentQuestionIndex = 0;
+        let focusLossCount = 0;
+        let currentSessionDocId = null;
+        let questionDurations = []; 
+        let lastQuestionStartTime = 0; 
+        
+        // Timer ve Admin
+        let timerInterval = null;
+        let examendTimeStamp = null;
+        let autoSaveInterval = null;
+        let allSubmissions = []; // Cache amaçlı
+        let isTeacherMode = false;
+        let isPreviewMode = false;
+        window.isAdminViewingResult = false;
+        
+        // OPTİMİZASYON İÇİN: Son veri çekme zamanları
+        let lastSavedAnswers = null; // Auto save optimizasyonu
+
+        // --- INPUT VALIDATION ---
+        function sanitizeInput(input) {
+            if (typeof input !== 'string') return '';
+            return input.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#x27;').replace(/"/g, '&quot;').substring(0, 500);
+        }
+
+        function sanitizeExamCode(code) {
+            if (typeof code !== 'string') return '';
+            return code.replace(/[^a-zA-Z0-9_]/g, '').toUpperCase().substring(0, 20);
+        }
+
+        function validateStudentData(student) {
+            if (!student || typeof student !== 'object') return false;
+            return (student.name && student.number && student.className);
+        }
+
+        const getConfigRef = (code) => doc(db, "exam_settings", sanitizeExamCode(code));
+        const getQuestionsRef = (code) => doc(db, "questions_pool", sanitizeExamCode(code));
+
+        // --- SİSTEM BAŞLATMA ---
+        async function initializeFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                await signInAnonymously(auth);
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) { isAuthReady = true; await checkConnectivity(); }
+                });
+            } catch (error) { showCustomAlert("Kritik Hata", "Firebase başlatılamadı: " + error.message); }
+        }
+
+        async function checkConnectivity() {
+            const statusDiv = document.getElementById('connectionStatus');
+            try {
+                const adminSnap = await getDoc(doc(db, "exam_settings", "admin_config"));
+                if (adminSnap.exists()) {
+                    const data = adminSnap.data();
+                    adminMasterCode = data.master_code;
+                    systemPreparerName = data.preparer_name || "Sistem Yöneticisi";
+                    isDbConnected = true;
+                    statusDiv.innerHTML = "🟢 Sistem Çevrimiçi";
+                    statusDiv.className = "mb-4 text-xs font-bold text-center p-2 rounded border bg-green-100 text-green-800 border-green-300";
+                } else { throw new Error("Admin konfigürasyonu eksik."); }
+            } catch(e) {
+                isDbConnected = false; adminMasterCode = null;
+                statusDiv.innerHTML = `🔴 BAĞLANTI HATASI<br><span class='text-[10px] font-normal'>${e.message}</span>`;
+                statusDiv.className = "mb-4 text-xs font-bold text-center p-2 rounded border bg-red-100 text-red-800 border-red-300";
+            }
+            statusDiv.classList.remove('hidden');
+            document.getElementById('loadingIndicator').classList.add('hidden');
+            showLoginForm();
+        }
+
+        function resetApp() {
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+            if (autoSaveInterval) { clearInterval(autoSaveInterval); autoSaveInterval = null; }
+            window.onblur = null; document.oncontextmenu = null;
+            currentExamConfig = { exam_code: "DEFAULT", teacher_name: systemPreparerName, time_limit: 600, exam_description: "..." };
+            quizQuestions = []; studentList = []; studentData = {}; selectedAnswers = []; questionOrder = []; questionDurations = [];
+            currentQuestionIndex = 0; focusLossCount = 0; currentSessionDocId = null; examendTimeStamp = null;
+            isTeacherMode = false; lastQuestionStartTime = 0; window.isAdminViewingResult = false;
+            document.getElementById('app').className = 'app-card max-w-md';
+            document.getElementById('connectionStatus').classList.remove('hidden');
+            showLoginForm();
+        }
+
+        async function fetchExamData(code) {
+            if (!isDbConnected) return false;
+            try {
+                const configSnap = await getDoc(getConfigRef(code));
+                if (configSnap.exists()) {
+                    const data = configSnap.data();
+                    currentExamConfig = { exam_code: sanitizeExamCode(code), teacher_name: data.teacher_name || "Öğretmen Bilgisi Yok", time_limit: data.time_limit || 600, exam_description: data.exam_description || "...", is_active: data.is_active };
+                } else { currentExamConfig = { exam_code: sanitizeExamCode(code), teacher_name: "Bulunamadı", time_limit: 600, exam_description: "Bulunamadı." }; }
+                const questionsSnap = await getDoc(getQuestionsRef(code));
+                quizQuestions = questionsSnap.exists() ? (questionsSnap.data().questions_list || []) : [];
+                const listSnap = await getDoc(doc(db, "student_lists", sanitizeExamCode(code)));
+                studentList = listSnap.exists() ? (listSnap.data().students || []) : [];
+                return true;
+            } catch(e) { console.error(e); return false; }
+        }
+
+        // --- GİRİŞ EKRANI ---
+        function showLoginForm() {
+            document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-extrabold">Öğrenci Girişi</h1>';
+            document.getElementById('mainContentArea').innerHTML = `
+                <div class="space-y-4 min-h-[400px] flex flex-col">
+                    <div id="teacherDisplayArea" class="text-center p-2 bg-indigo-50 rounded-lg border border-indigo-100 opacity-0 transition-opacity duration-500">
+                        <p class="text-xs text-gray-500">Uygulayıcı Öğretmen</p>
+                        <p id="teacherNameDisplay" class="font-bold text-indigo-700 text-lg"></p>
+                    </div>
+                    <div id="examInfoArea" class="hidden bg-yellow-50 border border-yellow-200 p-3 rounded-lg text-sm text-yellow-800"></div>
+                    <input id="examCodeInput" type="text" placeholder="SINAV KODU (..)" class="w-full p-3 border rounded-lg uppercase font-bold text-center tracking-widest focus:ring-2 focus:ring-indigo-400 outline-none transition-shadow">
+                    <div id="studentLoginFields" class="space-y-4 flex-grow"><p class="text-sm text-center text-gray-400 italic mt-2">Sınav kodunu girince liste açılacaktır.</p></div>
+                    <button id="startQuizButton" class="button w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow-lg opacity-50 cursor-not-allowed" disabled>Sınava Başla</button>
+                    <div class="border-t pt-4 mt-4"><button id="teacherLoginButton" class="text-gray-400 hover:text-gray-600 text-xs w-full text-center">Yönetici Girişi</button></div>
+                </div>
+            `;
+            document.getElementById('teacherLoginButton').onclick = showTeacherLogin;
+            document.getElementById('examCodeInput').oninput = handleCodeEntry;
+            document.getElementById('startQuizButton').onclick = handleStudentLogin;
+        }
+
+        let typingTimer;
+        async function handleCodeEntry() {
+            clearTimeout(typingTimer);
+            const code = sanitizeExamCode(document.getElementById('examCodeInput').value.trim());
+            const infoArea = document.getElementById('examInfoArea');
+            const loginFields = document.getElementById('studentLoginFields');
+            const btn = document.getElementById('startQuizButton');
+
+            if (code.length < 3) {
+                infoArea.classList.add('hidden');
+                document.getElementById('teacherDisplayArea').classList.add('opacity-0');
+                return;
+            }
+
+            typingTimer = setTimeout(async () => {
+                const success = await fetchExamData(code);
+                const isExamActive = currentExamConfig.is_active !== false; 
+
+                if (success) {
+                    document.getElementById('teacherNameDisplay').innerText = currentExamConfig.teacher_name || "Sistem Yöneticisi";
+                    document.getElementById('teacherDisplayArea').classList.remove('opacity-0');
+                } else {
+                    document.getElementById('teacherDisplayArea').classList.add('opacity-0');
+                }
+
+                if (success && !isExamActive) {
+                    infoArea.innerHTML = `<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-md"><p class="font-bold text-lg">⛔ Sınav Erişimi Kapalı</p><p>Bu sınav şu anda oturuma kapalıdır.</p></div>`;
+                    infoArea.classList.remove('hidden'); loginFields.innerHTML = ''; btn.disabled = true;
+                    return; 
+                }
+
+                infoArea.innerHTML = `<p class="font-bold">Sınav: ${code}</p><p>${sanitizeInput(currentExamConfig.exam_description)}</p><p class="text-xs mt-1">⏱️ Süre: ${Math.floor(currentExamConfig.time_limit/60)} Dakika | 📝 Soru: ${quizQuestions.length}</p>`;
+                infoArea.classList.remove('hidden');
+
+                if (!success || studentList.length === 0) {
+                    loginFields.innerHTML = `<div class="bg-red-50 p-4 rounded border border-red-200 text-center"><p class="text-red-700 font-bold mb-2">⚠️ Liste Bulunamadı</p><p class="text-xs text-red-600">Bu sınava ait öğrenci listesi yüklenmemiş.</p></div>`;
+                    btn.disabled = true;
+                } else {
+                    const students = studentList.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+                    const classes = [...new Set(students.map(s => s.className))].sort();
+
+                    loginFields.innerHTML = `
+                        <select id="classSelector" class="w-full p-3 border rounded-lg font-bold text-indigo-700 bg-white"><option value="">-- Sınıfınızı Seçin --</option>${classes.map(c => `<option value="${sanitizeInput(c)}">${sanitizeInput(c)}</option>`).join('')}</select>
+                        <select id="studentSelector" class="w-full p-3 border rounded-lg bg-gray-100" disabled><option value="">-- Önce Sınıf Seçin --</option></select>
+                       <div id="verificationArea" class="hidden mt-2 space-y-2">
+                            <input id="numberVerify" type="number" placeholder="Doğrulama: Okul Numaranız" class="w-full p-3 border-2 border-indigo-300 rounded-lg focus:ring-indigo-500">
+                            <div class="relative"><input id="studentPassword" type="text" placeholder="Sınav Şifresi Belirleyiniz (Sonuç İçin)" class="w-full p-3 border-2 border-orange-300 rounded-lg focus:ring-orange-500 bg-orange-50 text-orange-900 font-bold placeholder-orange-300"><p class="text-[10px] text-gray-400 mt-1 pl-1">* Sonucunuzu daha sonra görmek için bu şifre gereklidir.</p></div>
+                        </div>
+                    `;
+
+                    document.getElementById('classSelector').onchange = (e) => {
+                        const cls = e.target.value;
+                        const stuSel = document.getElementById('studentSelector');
+                        stuSel.innerHTML = '<option value="">-- Adınızı Seçin --</option>';
+                        stuSel.disabled = !cls; stuSel.classList.toggle('bg-gray-100', !cls);
+                        document.getElementById('verificationArea').classList.add('hidden'); btn.disabled = true;
+                        if (cls) { const filtered = students.filter(s => s.className === cls); stuSel.innerHTML += filtered.map(s => `<option value="${s.number}_${s.name}">${sanitizeInput(s.name)}</option>`).join(''); }
+                    };
+                    document.getElementById('studentSelector').onchange = (e) => { if(e.target.value) { document.getElementById('verificationArea').classList.remove('hidden'); document.getElementById('numberVerify').focus(); } else { document.getElementById('verificationArea').classList.add('hidden'); } };
+                    document.getElementById('numberVerify').oninput = (e) => { const val = e.target.value; btn.disabled = !val; btn.classList.toggle('opacity-50', !val); btn.classList.toggle('cursor-not-allowed', !val); };
+                }
+            }, 500);
+        }
+
+        async function handleStudentLogin() {
+            const code = sanitizeExamCode(document.getElementById('examCodeInput').value.trim());
+            const selVal = document.getElementById('studentSelector') ? document.getElementById('studentSelector').value : null;
+            if (!selVal) { showCustomAlert("Hata", "Lütfen listeden isminizi seçiniz."); return; }
+            const inputNum = document.getElementById('numberVerify').value;
+            const password = sanitizeInput(document.getElementById('studentPassword').value.trim());
+            if (!inputNum || !password) { showCustomAlert("Eksik Bilgi", "Lütfen numaranızı doğrulayın ve bir şifre belirleyin."); return; }
+            const parts = selVal.split('_');
+            const realNum = parts[0];
+            let realName = parts.slice(1).join('_').replace(/^"|"$/g, '').trim(); 
+
+            if (realNum !== inputNum) { return showCustomAlert("Hatalı Doğrulama", "Girdiğiniz numara seçilen öğrenciyle eşleşmiyor.") }
+            if (quizQuestions.length === 0) return showCustomAlert("Hata", "Bu sınavda hiç soru yok.");
+
+            studentData = { name: sanitizeInput(realName), number: realNum, className: sanitizeInput(document.getElementById('classSelector').value), examCode: code, password: password };
+            const studentKey = `${code}_${realNum}`;
+            const loadBtn = document.getElementById('startQuizButton');
+            loadBtn.innerText = "Kontrol Ediliyor..."; loadBtn.disabled = true;
+
+            try {
+                // OPTİMİZASYON: Sonuç var mı diye bak, sadece 1 okuma.
+                const subQ = query(collection(db, "quiz_submissions"), where("studentKey", "==", studentKey));
+                const subSnap = await getDocs(subQ);
+                
+                if (!subSnap.empty) {
+                    const existingData = subSnap.docs[0].data();
+                    if (existingData.password === password) {
+                        loadBtn.innerText = "Giriş"; loadBtn.disabled = false;
+                        showCustomAlert("Giriş Başarılı", "Kimlik doğrulandı. Sonuç paneline yönlendiriliyorsunuz...").then(() => showStudentDashboard(existingData));
+                    } else {
+                        loadBtn.innerText = "Sınava Başla"; loadBtn.disabled = false;
+                        showCustomAlert("Erişim Reddedildi", "<b>Hatalı Şifre!</b><br>Bu öğrencinin sonucunu görüntülemek için sınava başlarken belirlenen şifreyi girmelisiniz.");
+                    }
+                    return;
+                }
+
+                // Yarım kalan oturum kontrolü
+                const sesQ = query(collection(db, "active_sessions"), where("studentKey", "==", studentKey));
+                const sesSnap = await getDocs(sesQ);
+                if (!sesSnap.empty) {
+                    const session = sesSnap.docs[0].data();
+                    if (session.password && session.password !== password) {
+                        loadBtn.innerText = "Sınava Başla"; loadBtn.disabled = false;
+                        return showCustomAlert("Hata", "Yarım kalan oturuma devam etmek için doğru şifreyi girmelisiniz.");
+                    }
+                    showCustomAlert("Devam Ediliyor", "Önceki oturumunuz bulundu.").then(() => {
+                        restoreSession({ id: sesSnap.docs[0].id, ...session }); startQuiz();
+                    });
+                } else {
+                    startNewSession(realNum); startQuiz();
+                }
+            } catch(e) {
+                showCustomAlert("Hata", "Giriş yapılırken hata oluştu: " + e.message);
+                loadBtn.innerText = "Sınava Başla"; loadBtn.disabled = false;
+            }
+        }
+
+        // --- OTURUM YÖNETİMİ ---
+        function seededShuffle(array, seed) {
+            let hash = 0;
+            for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash) + seed.charCodeAt(i) | 0;
+            const shuffled = [...array];
+            let n = shuffled.length;
+            while (n > 1) {
+                hash = (hash * 9301 + 49297) % 233280;
+                let random = (hash < 0 ? hash + 233280 : hash) / 233280.0;
+                let k = Math.floor(random * n--);
+                [shuffled[n], shuffled[k]] = [shuffled[k], shuffled[n]];
+            }
+            return shuffled;
+        }
+
+        function startNewSession(seed) {
+            questionOrder = seededShuffle(Array.from({length: quizQuestions.length}, (_, i) => i), seed);
+            selectedAnswers = Array(quizQuestions.length).fill(null);
+            questionDurations = Array(quizQuestions.length).fill(0);
+            currentQuestionIndex = 0; focusLossCount = 0;
+            examendTimeStamp = Date.now() + (currentExamConfig.time_limit * 1000);
+            lastQuestionStartTime = Date.now();
+        }
+
+        function restoreSession(session) {
+            questionOrder = session.questionOrder || [];
+            selectedAnswers = session.selectedAnswers || [];
+            questionDurations = session.questionDurations || Array(questionOrder.length).fill(0);
+            currentQuestionIndex = session.currentQuestionIndex || 0;
+            focusLossCount = session.focusLossCount || 0;
+            currentSessionDocId = session.id;
+            const remaining = session.timeLeft || currentExamConfig.time_limit;
+            examendTimeStamp = Date.now() + (remaining * 1000);
+            lastQuestionStartTime = Date.now();
+        }
+
+        function updateQuestionTime() {
+            const now = Date.now();
+            const spent = (now - lastQuestionStartTime) / 1000;
+            const realIdx = questionOrder[currentQuestionIndex];
+            if(questionDurations[realIdx] === undefined) questionDurations[realIdx] = 0;
+            questionDurations[realIdx] += spent;
+            lastQuestionStartTime = now;
+        }
+
+        // --- SINAV ARAYÜZÜ ---
+        function startQuiz() {
+            document.getElementById('connectionStatus').classList.add('hidden');
+            document.getElementById('app').className = 'app-card max-w-3xl w-full';
+            document.getElementById('loginHeader').innerHTML = `<div class="flex justify-between px-4"><span class="text-sm opacity-80">${studentData.name}</span><span>${studentData.examCode}</span></div>`;
+
+            document.getElementById('mainContentArea').innerHTML = `
+                <div class="flex justify-between items-center mb-4 border-b pb-2">
+                    <span class="font-bold text-indigo-600">Soru: <span id="qCount">1</span> / ${quizQuestions.length}</span>
+                    <div id="timerDisplay" class="text-xl font-mono font-bold text-white bg-indigo-600 p-1 px-3 rounded shadow">--:--</div>
+                </div>
+                <div id="questionArea" class="min-h-[250px]"></div>
+                <div id="focusWarn" class="hidden mt-4 p-2 bg-red-100 text-red-800 text-sm font-bold text-center rounded border border-red-300"></div>
+                <div class="mt-6 flex justify-between">
+                    <button id="prevBtn" class="button bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded opacity-50" disabled>Önceki</button>
+                    <button id="nextBtn" class="button bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-6 rounded font-bold">Sonraki</button>
+                </div>
+            `;
+            renderQuestion(currentQuestionIndex);
+            startTimer();
+            setupSecurityListeners();
+            // OPTİMİZASYON: AutoSave süresini 30 saniyeye çıkardım
+            startAutoSave(); 
+            
+            document.getElementById('prevBtn').onclick = () => { if(currentQuestionIndex > 0) { updateQuestionTime(); currentQuestionIndex--; renderQuestion(currentQuestionIndex); saveProgress(); } };
+            document.getElementById('nextBtn').onclick = () => { if(currentQuestionIndex < quizQuestions.length - 1) { updateQuestionTime(); currentQuestionIndex++; renderQuestion(currentQuestionIndex); saveProgress(); } else { updateQuestionTime(); finishQuiz(false); } };
+        }
+
+        function renderQuestion(idx) {
+            const realIdx = questionOrder[idx];
+            const q = quizQuestions[realIdx];
+            const seed = studentData.number + '_q' + realIdx;
+            const shuffledOpts = seededShuffle(q.options, seed);
+            const currAns = selectedAnswers[realIdx];
+            const imageHtml = q.image ? `<div class="mb-4 flex justify-center"><img src="${q.image}" class="max-h-64 rounded-lg shadow border object-contain"></div>` : '';
+
+            document.getElementById('questionArea').innerHTML = `
+                <div class="font-semibold text-lg text-gray-800 mb-4 select-none">Soru ${idx + 1}: ${sanitizeInput(q.question)}</div>
+                ${imageHtml}
+                <div class="space-y-3">
+                    ${shuffledOpts.map(opt => `<label class="flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all ${currAns === opt ? 'bg-indigo-50 border-indigo-500 shadow-md' : 'border-gray-200 hover:bg-gray-50'}"><input type="radio" name="opt" value="${sanitizeInput(opt)}" class="w-5 h-5 text-indigo-600" ${currAns === opt ? 'checked' : ''}><span class="ml-3 text-gray-700 font-medium select-none">${sanitizeInput(opt)}</span></label>`).join('')}
+                </div>
+            `;
+            document.getElementById('qCount').innerText = idx + 1;
+            document.querySelectorAll('input[name="opt"]').forEach(el => {
+                el.onchange = (e) => { 
+                    selectedAnswers[realIdx] = e.target.value; 
+                    document.querySelectorAll('label').forEach(l => l.className = "flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all border-gray-200 hover:bg-gray-50");
+                    e.target.closest('label').className = "flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all bg-indigo-50 border-indigo-500 shadow-md";
+                };
+            });
+            document.getElementById('prevBtn').disabled = idx === 0;
+            document.getElementById('prevBtn').classList.toggle('opacity-50', idx === 0);
+            const nextBtn = document.getElementById('nextBtn');
+            if (idx === quizQuestions.length - 1) { nextBtn.innerText = "SINAVI BİTİR"; nextBtn.className = "button bg-green-600 hover:bg-green-700 text-white py-2 px-6 rounded font-bold shadow-lg transform hover:scale-105"; } 
+            else { nextBtn.innerText = "Sonraki"; nextBtn.className = "button bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-6 rounded font-bold"; }
+        }
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            const updateTimerUI = () => {
+                const now = Date.now();
+                let diff = Math.ceil((examendTimeStamp - now) / 1000);
+                if (diff <= 0) { diff = 0; clearInterval(timerInterval); timerInterval = null; finishQuiz(true); return; }
+                const timerDisplay = document.getElementById('timerDisplay');
+                if (diff < 60) timerDisplay.className = "text-xl font-mono font-bold text-white bg-red-600 p-1 px-3 rounded shadow animate-pulse";
+                const m = Math.floor(diff / 60);
+                const s = diff % 60;
+                timerDisplay.innerText = `${m}:${s < 10 ? '0'+s : s}`;
+            };
+            updateTimerUI();
+            timerInterval = setInterval(updateTimerUI, 1000);
+        }
+
+        function setupSecurityListeners() {
+            window.onblur = () => { if (isTeacherMode) return; focusLossCount++; const w = document.getElementById('focusWarn'); if(w) { w.classList.remove('hidden'); w.innerText = `⚠️ DİKKAT: Sınav ekranından ${focusLossCount} kez ayrıldınız!`; } saveProgress(); };
+            document.addEventListener('contextmenu', event => event.preventDefault());
+        }
+
+        function startAutoSave() { 
+            // 30 saniyede bir otomatik kayıt (Write Optimization)
+            autoSaveInterval = setInterval(() => saveProgress(true), 30000); 
+        }
+
+        async function saveProgress(isAuto = false) {
+            if (isTeacherMode && isPreviewMode) return;
+            if (isTeacherMode || !isDbConnected) return;
+            
+            // Veri değişmediyse yazma yapma (Optimization)
+            const currentAnswersStr = JSON.stringify(selectedAnswers);
+            if(isAuto && lastSavedAnswers === currentAnswersStr) return; 
+
+            try {
+                const now = Date.now();
+                const remainingSeconds = Math.floor((examendTimeStamp - now) / 1000);
+                if (!validateStudentData(studentData)) return;
+                const data = { ...studentData, studentKey: `${sanitizeExamCode(studentData.examCode)}_${studentData.number}`, questionOrder, selectedAnswers, questionDurations, currentQuestionIndex, timeLeft: remainingSeconds > 0 ? remainingSeconds : 0, focusLossCount, lastUpdated: serverTimestamp() };
+                if (currentSessionDocId) { await updateDoc(doc(db, "active_sessions", currentSessionDocId), data); } 
+                else { const ref = await addDoc(collection(db, "active_sessions"), data); currentSessionDocId = ref.id; }
+                lastSavedAnswers = currentAnswersStr;
+            } catch(e) { console.warn("Autosave failed:", e.message); }
+        }
+
+        async function finishQuiz(force = false) {
+            if (isPreviewMode) {
+                if (timerInterval) clearInterval(timerInterval); if (autoSaveInterval) clearInterval(autoSaveInterval);
+                window.onblur = null; document.oncontextmenu = null;
+                alert("Önizleme modu tamamlandı. Panele dönülüyor.");
+                document.getElementById('app').className = 'app-card teacher-mode'; 
+                isPreviewMode = false; showDashboard(); window.changeTab('myexams'); return; 
+            }
+            if (timerInterval) clearInterval(timerInterval); if (autoSaveInterval) clearInterval(autoSaveInterval);
+            window.onblur = null; document.oncontextmenu = null;
+            if (!force && !confirm("Sınavı bitirmek istediğinize emin misiniz?")) { startTimer(); setupSecurityListeners(); return; }
+
+            document.getElementById('mainContentArea').innerHTML = `<div class="text-center py-10"><div class="loader mb-4"></div><p class="font-bold text-gray-600">Gönderiliyor...</p></div>`;
+            
+            let currentQuestions = [];
+            try { const qSnap = await getDoc(getQuestionsRef(studentData.examCode)); currentQuestions = qSnap.exists() ? qSnap.data().questions_list : []; } catch(e) { currentQuestions = quizQuestions; }
+
+            let c=0, i=0, e=0;
+            for (let idx = 0; idx < questionOrder.length; idx++) {
+                const realQIdx = questionOrder[idx];
+                const correctQ = currentQuestions[realQIdx];
+                if(!correctQ) continue;
+                const sAns = String(selectedAnswers[realQIdx] || '').trim();
+                const cAns = String(correctQ.answer || '').trim();
+                if(!sAns) e++; else if (sAns.toLowerCase() === cAns.toLowerCase()) c++; else i++;
+            }
+            const score = (currentQuestions.length > 0) ? (c * 100 / currentQuestions.length).toFixed(2) : 0;
+            let ip = "Gizli"; try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); ip = d.ip; } catch(err){}
+
+            const finalData = { ...studentData, studentKey: `${studentData.examCode}_${studentData.number}`, score, correct: c, incorrect: i, empty: e, timeSpent: currentExamConfig.time_limit - Math.floor((examendTimeStamp - Date.now())/1000), timestamp: serverTimestamp(), focusLossCount, ipAddress: ip, questionOrder, allAnswers: selectedAnswers, questionDurations };
+
+            if(isDbConnected) { try { await addDoc(collection(db, "quiz_submissions"), finalData); if (currentSessionDocId) await deleteDoc(doc(db, "active_sessions", currentSessionDocId)); } catch(e) { alert("Sunucu Hatası: Kaydedilemedi."); } }
+            showStudentDashboard(finalData);
+        }
+
+        // --- YÖNETİCİ MODÜLÜ ---
+        function showTeacherLogin() {
+            document.getElementById('mainContentArea').innerHTML = `
+                <div class="space-y-4">
+                    <h3 class="text-center font-bold text-gray-800 text-lg">Yönetici Girişi</h3>
+                    <div class="text-center text-xs p-2 rounded ${isDbConnected ? 'bg-green-100 text-green-800':'bg-red-100 text-red-800'}">${isDbConnected ? 'Veritabanı Bağlantısı Aktif' : 'Veritabanı Bağlantısı YOK'}</div>
+                    <input id="pass" type="password" placeholder="Yönetici Şifresi" class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <button id="loginBtn" class="button bg-indigo-600 text-white w-full py-3 rounded-lg font-bold hover:bg-indigo-700">Giriş Yap</button>
+                    <button id="backBtn" class="button bg-gray-200 text-gray-700 w-full py-3 rounded-lg font-semibold hover:bg-gray-300">Geri Dön</button>
+                </div>
+            `;
+            document.getElementById('backBtn').onclick = showLoginForm;
+            document.getElementById('loginBtn').onclick = () => {
+                const inputPass = document.getElementById('pass').value;
+                if (!isDbConnected || adminMasterCode === null) { return showCustomAlert("Hata", "Veritabanına bağlanılamadı."); }
+                if (inputPass === adminMasterCode) { isTeacherMode = true; showDashboard(); } else { showCustomAlert("Hatalı Şifre", "Girdiğiniz şifre yanlış."); }
+            };
+        }
+
+        function showDashboard() {
+            document.getElementById('connectionStatus').classList.add('hidden');
+            document.getElementById('app').className = 'app-card teacher-mode';
+            document.getElementById('loginHeader').innerHTML = '<h1 class="text-2xl font-bold flex justify-between items-center px-4"><span>Yönetim Paneli</span> <button id="logoutBtn" class="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded">Çıkış</button></h1>';
+            document.getElementById('logoutBtn').onclick = resetApp;
+
+            const dashboardHtml = `
+              <div class="flex flex-wrap gap-2 mb-6 border-b pb-4">
+                <button onclick="window.changeTab('results')" class="flex-1 min-w-[120px] px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded shadow text-sm font-semibold">📊 Sonuçlar</button>
+                <button onclick="window.changeTab('settings')" class="flex-1 min-w-[120px] px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded shadow text-sm font-semibold">⚙️ Sınav Oluştur</button>
+                <button onclick="window.changeTab('questions')" class="flex-1 min-w-[120px] px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded shadow text-sm font-semibold">📝 Sorular</button>
+                <button onclick="window.changeTab('lists')" class="flex-1 min-w-[120px] px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded shadow text-sm font-semibold">👥 Öğrenciler</button>
+                <button onclick="window.changeTab('myexams')" class="flex-1 min-w-[120px] px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded shadow text-sm font-semibold">📂 Sınavlarım</button>
+                <button onclick="window.changeTab('online')" class="flex-1 min-w-[120px] px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded shadow text-sm font-semibold">👁️ Online Öğrenciler</button>
+            </div>
+            
+            <div id="tab-results" class="tab-content">
+                <div class="flex justify-between items-center mb-4"><h2 class="font-bold text-lg text-gray-700">Sonuç Listesi</h2><div class="flex gap-2"><button onclick="window.loadResults()" class="bg-indigo-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1">🔄 Yenile</button><button onclick="window.exportToExcel()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">Excel İndir</button><button onclick="window.exportDetailedResults()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">Detaylı Excel</button></div></div>
+                <div class="flex flex-wrap gap-2 mb-4"><input id="filterCode" placeholder="Kod Ara" class="p-2 border rounded text-sm w-24"><input id="filterName" placeholder="İsim Ara" class="p-2 border rounded text-sm flex-1"><select id="filterClass" class="p-2 border rounded text-sm w-32"><option value="">Tüm Sınıflar</option></select><button onclick="window.bulkDeleteFiltered()" class="bg-red-600 text-white px-3 py-1 rounded text-sm">Filtrelenmişleri Sil</button><button onclick="window.bulkDeleteAll()" class="bg-red-800 text-white px-3 py-1 rounded text-sm">Tümünü Sil</button></div>
+                <div class="overflow-auto max-h-[500px] border rounded-lg"><table class="min-w-full divide-y divide-gray-200 text-sm"><thead class="bg-gray-100 sticky top-0"><tr><th class="p-3 text-left">Öğrenci</th><th class="p-3 text-left">Kod</th><th class="p-3 text-left">Puan</th><th class="p-3 text-left">D/Y/B</th><th class="p-3 text-left">Süre</th><th class="p-3 text-left">Odak Kaybı</th><th class="p-3 text-left">IP</th><th class="p-3 text-left">Tarih/Saat</th><th class="p-3 text-left">İşlem</th></tr></thead><tbody id="resultsTableBody" class="bg-white divide-y"></tbody></table></div>
+            </div>
+
+            <div id="tab-online" class="tab-content hidden">
+                <div class="flex justify-between items-center mb-4"><h2 class="font-bold text-lg text-gray-700">🟢 Online Öğrenciler</h2><div class="flex gap-2"><button onclick="window.refreshOnlineStudents()" class="bg-green-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1"><span>🔄</span> Listeyi Yenile</button><button onclick="window.exportOnlineStudents()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1"><span>📊</span> Excel İndir</button></div></div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6"><div class="bg-green-50 p-4 rounded-xl border border-green-200 text-center"><div class="text-3xl font-bold text-green-700" id="totalOnlineCount">0</div><div class="text-sm text-green-600 font-medium">Toplam Online</div></div><div class="bg-blue-50 p-4 rounded-xl border border-blue-200 text-center"><div class="text-3xl font-bold text-blue-700" id="activeExamsCount">0</div><div class="text-sm text-blue-600 font-medium">Aktif Sınav</div></div><div class="bg-purple-50 p-4 rounded-xl border border-purple-200 text-center"><div class="text-3xl font-bold text-purple-700" id="totalClassesCount">0</div><div class="text-sm text-purple-600 font-medium">Sınıf Sayısı</div></div></div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6"><div class="bg-white p-4 rounded-xl shadow-sm border"><h3 class="font-bold text-gray-700 mb-3">📊 Sınıf Dağılımı</h3><div id="classDistribution" class="space-y-2 max-h-60 overflow-y-auto"><div class="text-center text-gray-500 py-4">Yükleniyor...</div></div></div><div class="bg-white p-4 rounded-xl shadow-sm border"><h3 class="font-bold text-gray-700 mb-3">📝 Sınav Kodları</h3><div id="examDistribution" class="space-y-2 max-h-60 overflow-y-auto"><div class="text-center text-gray-500 py-4">Yükleniyor...</div></div></div></div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border"><h3 class="font-bold text-gray-700 mb-3">👥 Online Öğrenci Listesi</h3><div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200 text-sm"><thead class="bg-gray-100 sticky top-0"><tr><th class="p-3 text-left">Öğrenci</th><th class="p-3 text-left">Sınıf</th><th class="p-3 text-left">Sınav Kodu</th><th class="p-3 text-left">Soru</th><th class="p-3 text-left">Süre Kalan</th><th class="p-3 text-left">Bağlantı Süresi</th><th class="p-3 text-left">Odak Kaybı</th></tr></thead><tbody id="onlineStudentsTable" class="bg-white divide-y divide-gray-100"><tr><td colspan="7" class="p-4 text-center text-gray-500">Listeyi yenilemek için butona basın.</td></tr></tbody></table></div></div>
+            </div>
+
+            <div id="tab-questions" class="tab-content hidden">
+                 <div class="max-w-2xl mx-auto"><div class="bg-orange-50 p-4 rounded-lg border border-orange-200 mb-4"><label class="block font-bold text-orange-800 mb-1">Hangi Sınav İçin?</label><select id="uploadQCode" class="w-full p-2 border rounded uppercase font-bold bg-white text-orange-700"><option value="">-- Sınav Seçiniz --</option></select></div><textarea id="jsonInput" rows="10" class="w-full p-3 font-mono text-xs border rounded bg-gray-900 text-green-400" placeholder='[{"question":"Soru?","options":["A","B"],"answer":"A"}]'></textarea><div class="flex justify-between mt-2"><button onclick="window.loadSampleJson()" class="text-xs text-gray-500 underline">Örnek Format</button><button id="btnUploadQ" class="bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded font-bold shadow">SORULARI YÜKLE</button></div></div>
+            </div>
+
+            <div id="tab-settings" class="tab-content hidden">
+                <div class="max-w-lg mx-auto space-y-4"><div class="bg-gray-50 p-4 rounded border"><h3 class="font-bold mb-2">Sınav Oluştur / Düzenle</h3><input id="setExamCode" class="w-full p-2 border rounded mb-2 uppercase" placeholder="Sınav Kodu (Örn: 9A_MAT)"><label class="text-xs text-gray-500 font-bold ml-1">Dersi Veren Öğretmen</label><input id="setTeacherName" class="w-full p-2 border rounded mb-2" placeholder="Örn: Ö. Sevinç"><div class="flex gap-2"><input id="setTime" type="number" class="w-1/3 p-2 border rounded mb-2" placeholder="Süre (Dk)"><input id="setDesc" class="flex-1 p-2 border rounded mb-2" placeholder="Açıklama (Örn: 1. Dönem 1. Yazılı)"></div><button id="btnSaveSettings" class="w-full bg-gray-700 text-white p-2 rounded font-bold hover:bg-gray-800">Sınavı Kaydet / Oluştur</button></div><div class="bg-red-50 p-4 rounded border border-red-200"><h3 class="font-bold text-red-700 mb-2">Yönetici Şifresi Değiştir</h3><input id="newAdminPass" type="password" class="w-full p-2 border rounded mb-2" placeholder="Yeni Şifre"><button id="btnChangePass" class="w-full bg-red-600 text-white p-2 rounded font-bold">Şifreyi Güncelle</button></div></div>
+            </div>
+
+            <div id="tab-lists" class="tab-content hidden">
+                <div class="max-w-2xl mx-auto"><div class="bg-teal-50 p-4 rounded border border-teal-200 mb-4"><label class="font-bold text-teal-800">Hangi Sınav İçin?</label><select id="uploadListCode" class="w-full p-2 border rounded uppercase font-bold bg-white text-teal-700"><option value="">-- Sınav Seçiniz --</option></select></div><div class="paste-area" id="listInput" contenteditable="true" placeholder="Excel'den Kopyala (No | Sınıf | Ad Soyad)"></div><div class="text-xs text-gray-500 mt-1">E.okuldan indirdiğiniz excel dosyanızı buraya sürükleyip bırakın veya verileri kopyalayıp bu alana yapıştırın (Ctrl+V)</div><button id="btnUploadList" class="w-full mt-2 bg-teal-600 text-white py-2 rounded font-bold">Listeyi Kaydet</button></div>
+            </div>
+
+            <div id="tab-myexams" class="tab-content hidden"><div id="myExamsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">Yükleniyor...</div></div>
+            `;
+            
+            document.getElementById('mainContentArea').innerHTML = dashboardHtml;
+            
+            window.populateExamSelects = async () => {
+                const qSelect = document.getElementById('uploadQCode'); const lSelect = document.getElementById('uploadListCode');
+                qSelect.innerHTML = '<option value="">-- Sınav Seçiniz --</option>'; lSelect.innerHTML = '<option value="">-- Sınav Seçiniz --</option>';
+                const snap = await getDocs(collection(db, "exam_settings"));
+                snap.forEach(doc => { if(doc.id !== 'admin_config') { const o1=document.createElement('option'), o2=document.createElement('option'); o1.value=doc.id; o1.text=doc.id; o2.value=doc.id; o2.text=doc.id; qSelect.appendChild(o1); lSelect.appendChild(o2); } });
+            };
+
+            window.changeTab = (t) => {
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden')); document.getElementById('tab-' + t).classList.remove('hidden');
+                if(t === 'results' && allSubmissions.length === 0) loadResults(); 
+                if(t === 'myexams') loadMyExams(); 
+                if(t === 'questions' || t === 'lists') window.populateExamSelects(); 
+                if(t === 'online') window.loadOnlineStudents();
+            };
+            
+            // Event Listeners for Dashboard
+            document.getElementById('btnSaveSettings').onclick = async () => { const code = sanitizeExamCode(document.getElementById('setExamCode').value); const teacher = sanitizeInput(document.getElementById('setTeacherName').value); if(!code || !teacher) return alert("Eksik bilgi"); await setDoc(getConfigRef(code), { teacher_name: teacher, time_limit: parseInt(document.getElementById('setTime').value) * 60, exam_description: sanitizeInput(document.getElementById('setDesc').value) }, { merge: true }); alert("Sınav ayarları kaydedildi."); window.populateExamSelects(); };
+            window.loadSampleJson = () => { document.getElementById('jsonInput').value = `[\n  {\n    "question": "Türkiye'nin başkenti neresidir?",\n    "options": ["İstanbul", "Ankara", "İzmir", "Bursa"],\n    "answer": "Ankara"\n  }\n]`; };
+            document.getElementById('btnUploadQ').onclick = async () => { const code = document.getElementById('uploadQCode').value; const rawJson = document.getElementById('jsonInput').value; if(!code) return alert("Sınav seçiniz."); if(!confirm("Onaylıyor musunuz?")) return; try { const parsed = JSON.parse(rawJson); await setDoc(getQuestionsRef(code), { questions_list: parsed }); alert("Sorular yüklendi."); document.getElementById('jsonInput').value = ''; } catch(e) { alert("JSON Hatası: " + e.message); } };
+            document.getElementById('btnChangePass').onclick = async () => { const newP = document.getElementById('newAdminPass').value; if(newP.length < 4) return alert("Şifre kısa."); if(confirm("Değiştirmek istiyor musunuz?")) { await setDoc(doc(db, "exam_settings", "admin_config"), { master_code: newP }, { merge: true }); adminMasterCode = newP; alert("Şifre güncellendi."); } };
+            
+            // List Upload Logic
+            document.getElementById('btnUploadList').onclick = async () => {
+                const code = document.getElementById('uploadListCode').value; const txt = document.getElementById('listInput').innerText;
+                if(!code || !txt.trim()) return alert("Sınav seçiniz ve liste yapıştırınız.");
+                const students = []; const lines = txt.split('\n'); let currentClass = "";
+                const btn = document.getElementById('btnUploadList'); btn.innerText = "İşleniyor..."; btn.disabled = true;
+                try {
+                    for (let line of lines) {
+                        line = line.trim().replace(/"/g, '').replace(/(\d{3,}[A-Z]{3,}\d{3,})$/, '').trim();
+                        const classMatch = line.match(/(\d+)\.\s*Sınıf\s*\/\s*([A-Z])/i);
+                        if (classMatch) { currentClass = classMatch[1] + classMatch[2]; continue; }
+                        if (!currentClass) continue;
+                        const studentMatch = line.match(/^\s*\d+\s+(\d+)\s+(.+)\s+(Erkek|Kız)/i);
+                        if (studentMatch) { const num = studentMatch[1].trim(); const rawName = studentMatch[2].trim(); if (rawName.includes("Adı Soyadı") || line.includes("Öğrenci Sayısı")) continue; if (!isNaN(num) && rawName.length > 2) students.push({ number: num, className: currentClass, name: rawName }); }
+                    }
+                    if(students.length === 0) throw new Error("Öğrenci bulunamadı.");
+                    await setDoc(doc(db, "student_lists", code), { students }); alert(`✅ ${students.length} öğrenci eklendi.`); document.getElementById('listInput').innerText = '';
+                } catch(e) { alert("Hata: " + e.message); } finally { btn.innerText = "Listeyi Kaydet"; btn.disabled = false; }
+            };
+            
+            // Drag Drop
+            const listInputArea = document.getElementById('listInput');
+            listInputArea.addEventListener('dragover', (e) => { e.preventDefault(); listInputArea.classList.add('border-indigo-500', 'bg-indigo-50'); });
+            listInputArea.addEventListener('dragleave', (e) => { e.preventDefault(); listInputArea.classList.remove('border-indigo-500', 'bg-indigo-50'); });
+            listInputArea.addEventListener('drop', (e) => { e.preventDefault(); listInputArea.classList.remove('border-indigo-500', 'bg-indigo-50'); if (e.dataTransfer.files.length > 0) readExcelFile(e.dataTransfer.files[0]); });
+            const readExcelFile = (file) => { const reader = new FileReader(); reader.onload = function(e) { try { const data = new Uint8Array(e.target.result); const workbook = XLSX.read(data, { type: 'array' }); const firstSheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[firstSheetName]; const rawText = XLSX.utils.sheet_to_csv(worksheet, { FS: ' ' }); document.getElementById('listInput').innerText = rawText.replace(/"/g, ''); alert('✅ Excel okundu.'); } catch (error) { alert('Hata: ' + error.message); } }; reader.readAsArrayBuffer(file); };
+            
+            loadResults();
+        }
+
+        // OPTİMİZASYON: onSnapshot YERİNE getDocs KULLANILDI (MANUEL YENİLEME)
+        async function loadResults() {
+            const tbody = document.getElementById('resultsTableBody');
+            tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center">Veriler çekiliyor...</td></tr>';
+            
+            try {
+                // Sadece son 500 kaydı çek (Okuma kotası için)
+                const q = query(collection(db, "quiz_submissions"), orderBy("timestamp", "desc"), limit(500));
+                const snap = await getDocs(q);
+                
+                allSubmissions = snap.docs.map(d => { 
+                    const data = d.data(); 
+                    let dateTime = "Bilinmiyor"; 
+                    if (data.timestamp && data.timestamp.toDate) { 
+                        const date = data.timestamp.toDate(); 
+                        dateTime = `${date.toLocaleDateString('tr-TR')} ${date.toLocaleTimeString('tr-TR')}`; 
+                    } 
+                    return { id: d.id, ...data, formattedDateTime: dateTime }; 
+                });
+                renderResultsTable(); 
+                updateClassFilter();
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="9" class="p-4 text-center text-red-500">Hata: ${error.message}</td></tr>`;
+            }
+            
+            document.getElementById('filterCode').oninput = renderResultsTable; 
+            document.getElementById('filterName').oninput = renderResultsTable; 
+            document.getElementById('filterClass').onchange = renderResultsTable;
+        }
+
+        function updateClassFilter() { const cf = document.getElementById('filterClass'); const cls = [...new Set(allSubmissions.map(s => s.className))].filter(c => c).sort(); cf.innerHTML = '<option value="">Tüm Sınıflar</option>'; cls.forEach(c => cf.innerHTML += `<option value="${c}">${c}</option>`); }
+
+        function renderResultsTable() {
+            const fCode = document.getElementById('filterCode').value.toLowerCase();
+            const fName = document.getElementById('filterName').value.toLowerCase();
+            const fClass = document.getElementById('filterClass').value;
+            const tbody = document.getElementById('resultsTableBody');
+            const filtered = allSubmissions.filter(s => (s.examCode||'').toLowerCase().includes(fCode) && (s.name||'').toLowerCase().includes(fName) && (!fClass || s.className === fClass)).sort((a,b) => b.score - a.score);
+            
+            if(filtered.length === 0) {
+                 tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-gray-400">Sonuç bulunamadı.</td></tr>';
+                 return;
+            }
+
+            tbody.innerHTML = filtered.map(s => {
+                const min = Math.floor((s.timeSpent||0) / 60); const sec = (s.timeSpent||0) % 60;
+                return `<tr class="hover:bg-gray-50"><td class="p-3"><div class="font-bold text-gray-800">${s.name}</div><div class="text-xs text-gray-500">${s.number} - ${s.className}</div></td><td class="p-3 font-mono text-xs">${s.examCode}</td><td class="p-3 font-bold ${s.score >= 50 ? 'text-green-600':'text-red-600'}">${s.score}</td><td class="p-3 text-xs">${s.correct}D / ${s.incorrect}Y / ${s.empty}B</td><td class="p-3 text-xs">${min}:${sec < 10 ? '0' : ''}${sec}</td><td class="p-3 text-xs">${s.focusLossCount || 0}</td><td class="p-3 text-xs font-mono">${s.ipAddress || 'N/A'}</td><td class="p-3 text-xs">${s.formattedDateTime}</td>
+                <td class="p-3 flex gap-2 flex-wrap">
+                    <button onclick="window.viewStudentResult('${s.id}')" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 px-2 py-1 rounded text-xs font-bold flex items-center gap-1">👁️ Karne</button>
+                    <button onclick="window.showTimeAnalysis('${s.id}')" class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs border border-blue-200">⏱️ Süre</button>
+                    <button onclick="window.deleteSub('${s.id}')" class="text-red-600 hover:underline text-xs bg-red-50 border border-red-200 px-2 py-1 rounded">Sil</button>
+                </td></tr>`;
+            }).join('');
+        }
+
+        async function loadMyExams() {
+            const container = document.getElementById('myExamsList');
+            container.innerHTML = `<div class="col-span-full text-center py-10"><div class="loader mb-4"></div><p class="font-bold text-gray-600">Yükleniyor...</p></div>`;
+            try {
+                // Paralel okuma
+                const [configSnap, questionsSnap, listsSnap, submissionsSnap] = await Promise.all([ getDocs(collection(db, "exam_settings")), getDocs(collection(db, "questions_pool")), getDocs(collection(db, "student_lists")), getDocs(collection(db, "quiz_submissions")) ]);
+                const exams = []; const questionsData = {}; const studentLists = {}; const submissionCounts = {};
+                questionsSnap.forEach(doc => { questionsData[doc.id] = doc.data().questions_list?.length || 0; });
+                listsSnap.forEach(doc => { studentLists[doc.id] = doc.data().students?.length || 0; });
+                submissionsSnap.forEach(doc => { const c = doc.data().examCode; if (c) submissionCounts[c] = (submissionCounts[c] || 0) + 1; });
+                configSnap.forEach(doc => { if(doc.id !== 'admin_config') { const data = doc.data(); exams.push({ code: doc.id, teacher_name: data.teacher_name || "Belirtilmemiş", time_limit: data.time_limit || 600, exam_description: data.exam_description || "", custom_name: data.custom_name || "", is_active: data.is_active, question_count: questionsData[doc.id] || 0, student_count: studentLists[doc.id] || 0, submission_count: submissionCounts[doc.id] || 0 }); } });
+                if(exams.length === 0) { container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-10 font-bold">Sınav yok.</div>'; return; }
+                container.innerHTML = exams.map(exam => {
+                    const isActive = exam.is_active !== false; 
+                    return `
+                   <div class="bg-white p-6 border rounded-xl shadow-sm hover:shadow-md transition-all relative flex flex-col ${isActive ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-red-500 bg-gray-50'}">
+                        <div class="flex justify-between items-start mb-4">
+                            <div><div class="flex items-center gap-2"><h3 class="font-extrabold text-xl text-indigo-700 tracking-tight">${exam.code}</h3>${!isActive ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-600 border border-red-200">KAPALI</span>' : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-600 border border-green-200">AKTİF</span>'}</div><p class="text-sm text-gray-500 italic mt-1">${exam.exam_description}</p></div>
+                           <div class="flex flex-col gap-2 items-end">
+                                <button onclick="window.toggleExamStatus('${exam.code}', ${isActive})" class="text-xs font-bold px-3 py-1 rounded-full border w-24 ${isActive ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100'}">${isActive ? '⛔ Kapat' : '✅ Aç'}</button>
+                                <button onclick="window.showExamStatistics('${exam.code}')" class="text-xs font-bold px-3 py-1 rounded-full border w-24 bg-teal-50 text-teal-600 border-teal-200 hover:bg-teal-100">📊 İstatistik</button>
+                                <button id="btn-preview-${exam.code}" onclick="window.previewExam('${exam.code}')" class="text-xs font-bold px-3 py-1 rounded-full border w-24 bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100">👁️ Önizle</button>
+                                <button onclick="window.askExportFormat('${exam.code}')" class="text-xs font-bold px-3 py-1 rounded-full border w-24 bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100">📤 Dışa Aktar</button>
+                                <button onclick="window.importExamQuestions('${exam.code}')" class="text-xs font-bold px-3 py-1 rounded-full border w-24 bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100">📥 İçe Aktar</button>
+                           </div>
+                        </div>
+                        <div class="space-y-3 text-sm flex-grow ${!isActive ? 'opacity-60 grayscale-[50%]' : ''}">
+                            <div class="flex items-center justify-between py-1 border-b border-gray-50"><span class="text-gray-600 font-medium w-1/3">Özel İsim:</span><input type="text" class="text-xs p-1 border rounded w-32 text-right outline-none" placeholder="Özel ad" value="${exam.custom_name || ''}" onchange="window.updateExamName('${exam.code}', this.value)"></div>
+                            <div class="flex items-center justify-between py-1 border-b border-gray-50"><span class="text-gray-600 font-medium w-1/3">Hazırlayan:</span><div class="flex-1 flex space-x-2"><input id="teacherName-${exam.code}" type="text" value="${exam.teacher_name}" class="p-1 px-2 border rounded text-sm flex-1 outline-none"><button onclick="window.updateExamTeacher('${exam.code}')" class="bg-green-500 text-white px-2 rounded text-xs hover:bg-green-600">💾</button></div></div>
+                            <div class="flex justify-between py-1 border-b border-gray-50"><span class="text-gray-600 font-medium">Süre:</span><span class="font-bold text-gray-800">${Math.floor(exam.time_limit/60)} dk</span></div>
+                            <div class="flex justify-between items-center py-1 border-b border-gray-50"><span class="text-gray-600 font-medium">Soru Sayısı:</span><button onclick="window.showExamQuestions('${exam.code}')" class="text-blue-600 font-bold hover:underline">${exam.question_count} Soru</button></div>
+                            <div class="flex justify-between items-center py-1 border-b border-gray-50"><span class="text-gray-600 font-medium">Öğrenci Sayısı:</span><button onclick="window.showExamStudents('${exam.code}')" class="text-blue-600 font-bold hover:underline">${exam.student_count} Öğrenci</button></div>
+                            <div class="flex justify-between py-1"><span class="text-gray-600 font-medium">Katılım:</span><span class="font-bold text-lg text-gray-800">${exam.submission_count}</span></div>
+                        </div>
+                        <button onclick="window.deleteExam('${exam.code}')" class="mt-4 w-full bg-white text-gray-400 text-xs py-2 rounded border hover:bg-red-50 hover:text-red-500 transition">Sınavı Tamamen Sil</button>
+                    </div>
+                `}).join('');
+            } catch (error) { container.innerHTML = `<div class="col-span-full text-center text-red-500 py-10">Hata: ${error.message}</div>`; }
+        }
+
+        // Global Window Functions
+        window.showTimeAnalysis = (docId) => {
+            const sub = allSubmissions.find(s => s.id === docId); if (!sub || !sub.questionDurations) return alert("Süre verisi yok.");
+            let content = `<div class="max-h-[60vh] overflow-y-auto"><h3 class="font-bold text-lg mb-2">${sub.name} - Soru Süreleri</h3><table class="w-full text-sm border"><thead class="bg-gray-100"><tr><th class="p-2 border">Soru</th><th class="p-2 border">Süre (Sn)</th><th class="p-2 border">Durum</th></tr></thead><tbody>`;
+            sub.questionDurations.forEach((dur, i) => { const time = Math.floor(dur); let colorClass = "text-gray-700"; if(time > 120) colorClass = "text-red-600 font-bold"; else if(time < 10) colorClass = "text-orange-500"; content += `<tr><td class="p-2 border text-center">${i + 1}</td><td class="p-2 border text-center ${colorClass}">${time} sn</td><td class="p-2 border text-center text-xs text-gray-400">${time > 120 ? 'Çok Uğraştı' : (time < 10 ? 'Hızlı' : 'Normal')}</td></tr>`; });
+            content += `</tbody></table></div>`; showCustomAlert("Süre Analizi", content);
+        };
+        window.deleteSub = async (id) => { if(confirm("Silmek istiyor musunuz?")) { await deleteDoc(doc(db, "quiz_submissions", id)); window.loadResults(); } }; // Silince tabloyu yenile
+        window.bulkDeleteFiltered = async () => { const fCode = document.getElementById('filterCode').value.toLowerCase(); const fName = document.getElementById('filterName').value.toLowerCase(); const fClass = document.getElementById('filterClass').value; const filtered = allSubmissions.filter(s => (s.examCode||'').toLowerCase().includes(fCode) && (s.name||'').toLowerCase().includes(fName) && (!fClass || s.className === fClass)); if(filtered.length === 0) return alert("Kayıt yok."); if(confirm(`${filtered.length} kaydı silmek istiyor musunuz?`)) { for(const item of filtered) await deleteDoc(doc(db, "quiz_submissions", item.id)); alert("Silindi."); window.loadResults(); } };
+        window.bulkDeleteAll = async () => { if(allSubmissions.length === 0) return alert("Kayıt yok."); if(confirm("Tümünü silmek istediğinize emin misiniz?")) { for(const item of allSubmissions) await deleteDoc(doc(db, "quiz_submissions", item.id)); alert("Tümü silindi."); window.loadResults(); } };
+        window.exportToExcel = () => { const data = allSubmissions.map(s => ({ 'Ad Soyad': s.name, 'Numara': s.number, 'Sınıf': s.className, 'Sınav Kodu': s.examCode, 'Puan': s.score, 'Doğru': s.correct, 'Yanlış': s.incorrect, 'Boş': s.empty, 'Süre (sn)': s.timeSpent, 'Odak Kaybı': s.focusLossCount, 'IP': s.ipAddress, 'Tarih': s.formattedDateTime })); const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Sonuclar"); XLSX.writeFile(wb, "sinav_sonuclari.xlsx"); };
+        window.exportDetailedResults = () => { const fCode = document.getElementById('filterCode').value.toLowerCase(); const fName = document.getElementById('filterName').value.toLowerCase(); const fClass = document.getElementById('filterClass').value; const filtered = allSubmissions.filter(s => (s.examCode||'').toLowerCase().includes(fCode) && (s.name||'').toLowerCase().includes(fName) && (!fClass || s.className === fClass)); if(filtered.length === 0) return alert("Filtreye uygun kayıt yok."); const data = filtered.map(s => { const result = { 'Ad Soyad': s.name, 'Numara': s.number, 'Sınıf': s.className, 'Sınav Kodu': s.examCode, 'Puan': s.score, 'Doğru': s.correct, 'Yanlış': s.incorrect, 'Boş': s.empty, 'Süre': s.timeSpent, 'Odak Kaybı': s.focusLossCount, 'IP': s.ipAddress, 'Tarih': s.formattedDateTime }; if(s.allAnswers) s.allAnswers.forEach((answer, index) => { result[`Soru ${index + 1}`] = answer || ''; }); return result; }); const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Detayli"); XLSX.writeFile(wb, "detayli_sonuclar.xlsx"); };
+        window.updateExamName = async (code, name) => { try { await setDoc(getConfigRef(code), { custom_name: sanitizeInput(name) }, { merge: true }); } catch(e) { alert("Hata: " + e.message); } };
+        window.updateExamTeacher = async (code) => { const inputBtn = document.getElementById(`teacherName-${code}`); try { await setDoc(getConfigRef(code), { teacher_name: sanitizeInput(inputBtn.value) }, { merge: true }); inputBtn.classList.add('bg-green-100'); setTimeout(()=>inputBtn.classList.remove('bg-green-100'),1000); } catch(e) { alert("Hata: " + e.message); } };
+        
+        // Modal functions (Shortened)
+        window.showExamQuestions = async (code) => { try { const qSnap = await getDoc(getQuestionsRef(code)); const questions = qSnap.exists() ? qSnap.data().questions_list : []; let content = `<div class="sticky top-0 bg-white z-20 pb-4 border-b mb-4"><div class="flex justify-between items-center mb-2"><h3 class="text-xl font-bold text-indigo-700">${code} - Soru Yönetimi</h3><button onclick="document.getElementById('customModal').classList.add('hidden')" class="text-gray-500 hover:text-gray-800 font-bold text-xl">&times;</button></div><div class="bg-orange-50 p-3 rounded border border-orange-200 text-sm shadow-inner"><h4 class="font-bold text-orange-800 mb-2 flex items-center"><span id="formTitle">Yeni Soru Ekle</span><button onclick="window.clearQuestionForm()" class="ml-auto text-xs text-gray-500 underline">Temizle</button></h4><input type="hidden" id="editIndex" value="-1"><textarea id="qText" class="w-full p-2 border rounded mb-2 text-sm outline-none" rows="2" placeholder="Soru metni..."></textarea><div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2"><div class="flex items-center"><span class="w-6 font-bold text-gray-500">A)</span><input id="optA" class="flex-1 p-1 border rounded"></div><div class="flex items-center"><span class="w-6 font-bold text-gray-500">B)</span><input id="optB" class="flex-1 p-1 border rounded"></div><div class="flex items-center"><span class="w-6 font-bold text-gray-500">C)</span><input id="optC" class="flex-1 p-1 border rounded"></div><div class="flex items-center"><span class="w-6 font-bold text-gray-500">D)</span><input id="optD" class="flex-1 p-1 border rounded"></div><div class="flex items-center col-span-1 sm:col-span-2"><span class="w-6 font-bold text-gray-500">E)</span><input id="optE" class="flex-1 p-1 border rounded bg-gray-50" placeholder="(Opsiyonel)"></div></div><div class="flex gap-2 mb-2"><input id="qImg" class="flex-1 p-1 border rounded text-xs" placeholder="Resim Linki"><select id="qAns" class="p-1 border rounded font-bold text-indigo-700 bg-white"><option value="">Cevap</option><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option><option value="E">E</option></select></div><button onclick="window.saveQuestion('${code}')" id="saveBtn" class="w-full bg-orange-600 text-white py-2 rounded font-bold hover:bg-orange-700 transition shadow">Kaydet</button></div></div><div class="max-h-[40vh] overflow-y-auto space-y-3 pr-1 pb-2">`; if(questions.length===0) content+=`<p class="text-gray-400 text-center py-4 italic">Soru yok.</p>`; else { questions.forEach((q,i) => { content+=`<div class="p-3 border rounded bg-white hover:shadow-md transition relative group border-l-4 border-l-indigo-500"><div class="flex justify-between items-start mb-1"><span class="font-bold text-xs text-white bg-indigo-500 px-2 py-0.5 rounded-full">Soru ${i+1}</span><div class="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"><button onclick="window.editQuestion('${code}', ${i})" class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">Düzenle</button><button onclick="window.deleteQuestion('${code}', ${i})" class="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">Sil</button></div></div><p class="text-sm font-bold text-gray-800 mb-2">${sanitizeInput(q.question)}</p></div>`; }); } content += `</div>`; showCustomAlert(``, content); document.getElementById('modalContent').classList.remove('max-w-3xl'); document.getElementById('modalContent').classList.add('max-w-4xl'); } catch(e) { alert("Hata: " + e.message); } };
+        window.saveQuestion = async (code) => { const qText=document.getElementById('qText').value.trim(),optA=document.getElementById('optA').value.trim(),optB=document.getElementById('optB').value.trim(),optC=document.getElementById('optC').value.trim(),optD=document.getElementById('optD').value.trim(),optE=document.getElementById('optE').value.trim(),ansKey=document.getElementById('qAns').value,img=document.getElementById('qImg').value.trim(),editIndex=parseInt(document.getElementById('editIndex').value); if(!qText||!optA||!optB||!optC||!optD||!ansKey) return alert("Eksik bilgi."); let finalOptions=[optA,optB,optC,optD]; if(optE) finalOptions.push(optE); let correctText=""; if(ansKey==='A')correctText=optA;else if(ansKey==='B')correctText=optB;else if(ansKey==='C')correctText=optC;else if(ansKey==='D')correctText=optD;else if(ansKey==='E')correctText=optE; const newQ={question:qText,options:finalOptions,answer:correctText,image:img||""}; try{const ref=getQuestionsRef(code);const snap=await getDoc(ref);let list=snap.exists()?snap.data().questions_list:[];if(editIndex>-1)list[editIndex]=newQ;else list.push(newQ);await setDoc(ref,{questions_list:list},{merge:true});window.showExamQuestions(code);}catch(e){alert("Hata:"+e.message);} };
+        window.editQuestion = async (code, index) => { const snap=await getDoc(getQuestionsRef(code));const q=snap.data().questions_list[index]; document.getElementById('qText').value=q.question;document.getElementById('optA').value=q.options[0]||"";document.getElementById('optB').value=q.options[1]||"";document.getElementById('optC').value=q.options[2]||"";document.getElementById('optD').value=q.options[3]||"";document.getElementById('optE').value=q.options[4]||"";document.getElementById('qImg').value=q.image||"";let ansKey="";if(q.answer===q.options[0])ansKey="A";else if(q.answer===q.options[1])ansKey="B";else if(q.answer===q.options[2])ansKey="C";else if(q.answer===q.options[3])ansKey="D";else if(q.options[4]&&q.answer===q.options[4])ansKey="E";document.getElementById('qAns').value=ansKey;document.getElementById('editIndex').value=index;document.getElementById('formTitle').innerText=`Düzenleniyor: Soru ${index+1}`;document.getElementById('saveBtn').innerText="Değişiklikleri Kaydet";document.querySelector('.bg-orange-50').scrollIntoView({behavior:'smooth'}); };
+        window.clearQuestionForm = () => { document.getElementById('qText').value="";document.getElementById('optA').value="";document.getElementById('optB').value="";document.getElementById('optC').value="";document.getElementById('optD').value="";document.getElementById('optE').value="";document.getElementById('qImg').value="";document.getElementById('qAns').value="";document.getElementById('editIndex').value="-1";document.getElementById('formTitle').innerText="Yeni Soru Ekle";document.getElementById('saveBtn').innerText="Kaydet"; };
+        window.deleteQuestion = async (code, index) => { if(!confirm("Silmek istiyor musunuz?")) return; const ref=getQuestionsRef(code);const snap=await getDoc(ref);let list=snap.data().questions_list;list.splice(index,1);await setDoc(ref,{questions_list:list},{merge:true});window.showExamQuestions(code); };
+        window.showExamStudents = async (code) => { try { const snap=await getDoc(doc(db,"student_lists",code));const students=snap.exists()?snap.data().students:[];students.sort((a,b)=>a.className.localeCompare(b.className)||a.name.localeCompare(b.name));let content=`<div class="sticky top-0 bg-white z-20 pb-4 border-b mb-4"><div class="flex justify-between items-center mb-2"><h3 class="text-xl font-bold text-teal-700">${code} - Öğrenci Yönetimi</h3><button onclick="document.getElementById('customModal').classList.add('hidden')" class="text-gray-500 font-bold text-xl">&times;</button></div><div class="bg-teal-50 p-3 rounded border border-teal-200 text-sm shadow-inner"><h4 class="font-bold text-teal-800 mb-2">Öğrenci Ekle</h4><div class="flex gap-2"><input id="addNum" placeholder="No" class="w-20 p-2 border rounded"><input id="addClass" placeholder="Sınıf" class="w-20 p-2 border rounded"><input id="addName" placeholder="Ad Soyad" class="flex-1 p-2 border rounded"><button onclick="window.addStudent('${code}')" class="bg-teal-600 text-white px-4 py-2 rounded font-bold hover:bg-teal-700 shadow">Ekle</button></div></div></div><div class="max-h-[50vh] overflow-y-auto border rounded-lg shadow-sm"><table class="min-w-full text-sm divide-y divide-gray-200"><thead class="bg-gray-100 sticky top-0"><tr><th class="p-3 text-left">No</th><th class="p-3 text-left">Sınıf</th><th class="p-3 text-left">Ad Soyad</th><th class="p-3 text-right">İşlem</th></tr></thead><tbody class="bg-white divide-y divide-gray-100">`;if(students.length===0)content+=`<tr><td colspan="4" class="p-4 text-center text-gray-400">Liste boş.</td></tr>`;else{students.forEach(s=>{content+=`<tr class="hover:bg-teal-50 transition"><td class="p-3 font-mono font-bold text-teal-700">${s.number}</td><td class="p-3">${s.className}</td><td class="p-3 font-medium">${s.name}</td><td class="p-3 text-right"><button onclick="window.deleteStudent('${code}', '${s.number}')" class="bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded text-xs font-bold hover:bg-red-600 hover:text-white transition">Sil</button></td></tr>`;});}content+=`</tbody></table></div>`;showCustomAlert(``,content); } catch(e) { alert("Hata: "+e.message); } };
+        window.addStudent = async (code) => { const num=document.getElementById('addNum').value.trim(),cls=document.getElementById('addClass').value.trim(),name=document.getElementById('addName').value.trim();if(!num||!cls||!name)return alert("Eksik bilgi.");const ref=doc(db,"student_lists",code);const snap=await getDoc(ref);let students=snap.exists()?snap.data().students:[];if(students.some(s=>s.number===num))return alert("Bu numara kayıtlı!");students.push({number:num,className:cls,name:name});await setDoc(ref,{students},{merge:true});window.showExamStudents(code); };
+        window.deleteStudent = async (code, num) => { if(!confirm("Silmek istiyor musunuz?"))return;const ref=doc(db,"student_lists",code);const snap=await getDoc(ref);let students=snap.data().students.filter(s=>s.number!==num);await setDoc(ref,{students},{merge:true});window.showExamStudents(code); };
+        window.deleteExam = async (code) => { if(confirm(`⚠️ DİKKAT!\n"${code}" tamamen silinecek. Onaylıyor musunuz?`)){try{await deleteDoc(doc(db,"exam_settings",code));await deleteDoc(doc(db,"questions_pool",code));await deleteDoc(doc(db,"student_lists",code));const subSnap=await getDocs(query(collection(db,"quiz_submissions"),where("examCode","==" ,code)));subSnap.forEach(d=>deleteDoc(d.ref));alert("Silindi.");loadMyExams();}catch(e){alert("Hata: "+e.message);}} };
+        window.toggleExamStatus = async (code, currentStatus) => { try { await setDoc(getConfigRef(code), { is_active: !currentStatus }, { merge: true }); loadMyExams(); } catch (e) { alert("Hata: " + e.message); } };
+        window.previewExam = async (code) => { const btn=document.getElementById(`btn-preview-${code}`);if(btn)btn.innerText="Yükleniyor...";await fetchExamData(code);isPreviewMode=true;isTeacherMode=true;studentData={name:"YÖNETİCİ (ÖNİZLEME)",number:"0000",className:"TEST",examCode:code};startNewSession("preview_seed");startQuiz();document.getElementById('loginHeader').innerHTML=`<div class="flex justify-between items-center px-4 py-2 bg-orange-600 text-white rounded-t-lg"><div class="flex items-center gap-2"><span class="text-xl">👁️</span> <span class="font-bold">ÖNİZLEME MODU</span></div><button onclick="window.forceClosePreview()" class="bg-white text-orange-800 px-3 py-1 rounded text-xs font-bold hover:bg-gray-100">Önizlemeyi Kapat ✕</button></div>`;if(btn)btn.innerHTML='👁️ Önizle'; };
+        
+        function showCustomAlert(title, msg) { return new Promise(resolve => { const modal=document.getElementById('customModal'),content=document.getElementById('modalContent');content.innerHTML=(title?`<h3 class="text-xl font-bold text-gray-800 mb-2">${title}</h3>`:'')+`<div class="text-left w-full">${msg}</div>${title!=='Veriler Analiz Ediliyor...' ? '<button id="modalCloseBtn" class="mt-4 bg-indigo-600 text-white px-6 py-2 rounded font-bold hover:bg-indigo-700">Tamam</button>' : ''}`;modal.classList.remove('hidden');modal.classList.add('flex');const btn = document.getElementById('modalCloseBtn'); if(btn) btn.onclick=()=>{modal.classList.add('hidden');modal.classList.remove('flex');resolve();}; }); }
+        
+        window.askExportFormat = async (code) => { const modal=document.getElementById('customModal'),content=document.getElementById('modalContent');try {const qSnap=await getDoc(getQuestionsRef(code));const questions=qSnap.exists()?qSnap.data().questions_list:[];if(questions.length===0){alert("Soru yok.");return;}content.innerHTML=`<div class="text-center p-4"><div class="flex justify-between items-center mb-4"><h3 class="text-lg font-bold text-gray-800">${code} - Dışa Aktar</h3><button id="closeExportModal" class="text-gray-500 font-bold text-xl hover:text-red-500">&times;</button></div><p class="text-sm text-gray-600 mb-6 bg-blue-50 p-2 rounded border border-blue-100">${questions.length} soru bulundu.<br>İndirmek istediğiniz formatın üzerine tıklayınız.</p><div class="flex justify-center gap-6 mb-4"><button id="btnExportJson" class="group flex flex-col items-center justify-center p-4 bg-white border-2 border-orange-200 rounded-xl hover:bg-orange-50 hover:border-orange-500 transition-all w-36 shadow-sm active:scale-95"><span class="text-3xl mb-2 group-hover:scale-110 transition">💾</span><span class="font-bold text-orange-700">JSON Formatı</span></button><button id="btnExportWord" class="group flex flex-col items-center justify-center p-4 bg-white border-2 border-blue-200 rounded-xl hover:bg-blue-50 hover:border-blue-500 transition-all w-36 shadow-sm active:scale-95"><span class="text-3xl mb-2 group-hover:scale-110 transition">📝</span><span class="font-bold text-blue-700">Word Belgesi</span></button></div></div>`;modal.classList.remove('hidden');modal.classList.add('flex');document.getElementById('closeExportModal').onclick=()=>{modal.classList.add('hidden');modal.classList.remove('flex');};document.getElementById('btnExportJson').onclick=()=>{window.downloadJSON(code,questions);modal.classList.add('hidden');modal.classList.remove('flex');};document.getElementById('btnExportWord').onclick=()=>{window.downloadWord(code,questions);modal.classList.add('hidden');modal.classList.remove('flex');};}catch(e){alert("Hata: "+e.message);} };
+        window.downloadJSON = (code, questions) => { const dataStr="data:text/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(questions,null,2));const downloadAnchorNode=document.createElement('a');downloadAnchorNode.setAttribute("href",dataStr);downloadAnchorNode.setAttribute("download",code+"_sorular.json");document.body.appendChild(downloadAnchorNode);downloadAnchorNode.click();downloadAnchorNode.remove(); };
+        window.downloadWord = (code, questions) => { let htmlContent=`<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${code} Sınav Soruları</title><style>body{font-family:'Times New Roman', serif; font-size:12pt;} .header {text-align:center; font-weight:bold; font-size:14pt; margin-bottom:20px;} .question-box{margin-bottom:15px;} .q-text{font-weight:bold; margin-bottom:5px;} .options{margin-left:20px; margin-bottom:5px;} .answer{color:#cc0000; font-weight:bold; font-size:10pt; border-top:1px dashed #ccc; display:inline-block; margin-top:5px;} img {max-width:300px; height:auto; display:block; margin:5px 0;}</style></head><body><div class="header">${code} SINAV SORULARI</div>`;questions.forEach((q,index)=>{const opts=q.options||[];htmlContent+=`<div class="question-box"><div class="q-text">${index+1}. ${sanitizeInput(q.question)}</div>${q.image?`<img src="${q.image}">`:''}<div class="options">A) ${sanitizeInput(opts[0]||'')}<br>B) ${sanitizeInput(opts[1]||'')}<br>C) ${sanitizeInput(opts[2]||'')}<br>D) ${sanitizeInput(opts[3]||'')}<br>${opts[4]?`E) ${sanitizeInput(opts[4])}<br>`:''}</div><div class="answer">Doğru Cevap: ${q.answer}</div></div><br>`;});htmlContent+="</body></html>";const blob=new Blob(['\ufeff',htmlContent],{type:'application/msword'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=code+"_sorular.doc";document.body.appendChild(link);link.click();document.body.removeChild(link); };
+        window.importExamQuestions = (code) => { const input=document.createElement('input');input.type='file';input.accept='.json';input.onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=async(event)=>{try{const content=event.target.result;const questions=JSON.parse(content);if(!Array.isArray(questions))throw new Error("Format hatalı.");if(!confirm(`${questions.length} soru yüklenecek?`))return;await setDoc(doc(db,"questions_pool",code),{questions_list:questions});alert("Yüklendi.");if(window.loadMyExams)window.loadMyExams();}catch(err){alert("Hata: "+err.message);}};reader.readAsText(file);};input.click(); };
+        window.forceClosePreview = function() { let id=window.setTimeout(function(){},0);while(id--){window.clearTimeout(id);window.clearInterval(id);}window.onblur=null;document.oncontextmenu=null;isPreviewMode=false;if(typeof showDashboard==='function'){showDashboard();window.changeTab('myexams');}else{location.reload();} };
+        
+        // --- ÖĞRENCİ PANELİ ---
+        async function showStudentDashboard(studentResult) {
+            document.getElementById('connectionStatus').classList.add('hidden');
+            document.getElementById('app').className = 'app-card max-w-6xl w-full';
+            
+            let backButtonAction = 'location.reload()';
+            let backButtonText = 'Çıkış';
+            let headerClass = 'bg-red-500 hover:bg-red-600';
+
+            if (window.isAdminViewingResult) {
+                backButtonAction = "window.returnToAdminPanel()";
+                backButtonText = "🔙 Yönetim Paneline Dön";
+                headerClass = "bg-gray-700 hover:bg-gray-800";
+            }
+
+            document.getElementById('loginHeader').innerHTML = `
+                <div class="flex justify-between items-center px-4">
+                    <div><h1 class="text-xl font-bold">${studentResult.name}</h1><span class="text-xs opacity-80">${studentResult.examCode} Raporu</span></div>
+                    <button onclick="${backButtonAction}" class="${headerClass} text-white text-xs px-3 py-2 rounded font-bold shadow">${backButtonText}</button>
+                </div>`;
+
+            document.getElementById('mainContentArea').innerHTML = `<div class="text-center py-10"><div class="loader mb-4"></div><p class="font-bold text-gray-600">Sınıf verileri analiz ediliyor...</p></div>`;
+
+            try {
+                // OPTİMİZASYON: Veriyi sadece 1 kere çek
+                const allResultsQuery = query(collection(db, "quiz_submissions"), where("examCode", "==", studentResult.examCode));
+                const allSnap = await getDocs(allResultsQuery);
+                const allData = allSnap.docs.map(d => d.data());
+
+                const historyQuery = query(collection(db, "quiz_submissions"), where("number", "==", studentResult.number));
+                const historySnap = await getDocs(historyQuery);
+                const historyData = historySnap.docs.map(doc => ({ code: doc.data().examCode, score: parseFloat(doc.data().score), date: doc.data().timestamp })).sort((a, b) => (a.date?.seconds || 0) - (b.date?.seconds || 0));
+
+                allData.sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
+                const myRank = allData.findIndex(d => d.number === studentResult.number) + 1;
+                const totalStudents = allData.length;
+                
+                const classStats = {};
+                allData.forEach(d => { if (!classStats[d.className]) classStats[d.className] = { totalScore: 0, count: 0 }; classStats[d.className].totalScore += parseFloat(d.score); classStats[d.className].count += 1; });
+                const classAverages = Object.keys(classStats).map(cls => ({ className: cls, avg: (classStats[cls].totalScore / classStats[cls].count).toFixed(2), count: classStats[cls].count })).sort((a, b) => parseFloat(b.avg) - parseFloat(a.avg));
+                const badges = calculateBadges(studentResult, myRank, totalStudents, historyData);
+                const top10 = allData.sort((a, b) => { const scoreDiff = parseFloat(b.score) - parseFloat(a.score); return scoreDiff !== 0 ? scoreDiff : (a.timeSpent || 99999) - (b.timeSpent || 99999); }).slice(0, 10);
+
+                let htmlContent = `
+                <div class='flex justify-center gap-3 mb-6 flex-wrap'>
+                    <button onclick="downloadSimplePDF()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">📄 PDF İndir (Gelişmiş)</button>
+                    ${!window.isAdminViewingResult ? '<button id="refreshStudentBtn" onclick="window.refreshStudentResult()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">🔄 Verileri Güncelle</button>' : ''}
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border mb-6">
+    <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">
+        <span>🏆 Kazanılan Rozetler</span>
+        <span class="bg-yellow-500 text-white text-xs px-2 py-1 rounded-full">${badges.length}</span>
+    </h3>
+    <div class="flex flex-wrap gap-3">
+        ${badges.length > 0 ? badges.map(badge => `
+            <div class="group relative flex justify-center">
+                <span class="${badge.color} px-3 py-2 rounded-full text-sm font-medium flex items-center gap-2 shadow-sm cursor-help transition-transform hover:scale-105">
+                    ${badge.icon} ${badge.name}
+                </span>
+                
+                <div class="absolute bottom-full mb-2 w-48 p-2 bg-gray-800 text-white text-xs rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 text-center pointer-events-none">
+                    ${badge.desc}
+                    <div class="absolute top-100 left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+                </div>
+            </div>
+        `).join('') : '<div class="text-center text-gray-500 py-4 w-full"><span class="text-2xl">🎯</span><p class="mt-2">Henüz rozet kazanılmadı</p></div>'}
+    </div>
+</div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border mb-6"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2">🏆 Liderlik Tablosu (İlk 10)</h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-indigo-50 text-indigo-900"><tr><th class="p-2 text-center">Sıra</th><th class="p-2 text-left">Ad Soyad</th><th class="p-2 text-center">Sınıf</th><th class="p-2 text-center">Süre</th><th class="p-2 text-right">Puan</th></tr></thead><tbody class="divide-y">${top10.map((st, index) => { const isMe = st.number === studentResult.number; const mins = Math.floor((st.timeSpent || 0) / 60); const secs = (st.timeSpent || 0) % 60; return `<tr class="${isMe ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''}"><td class="p-2 text-center font-bold text-gray-500">${index + 1}</td><td class="p-2 font-medium">${isMe ? '👉 ' + st.name : st.name}</td><td class="p-2 text-center text-xs text-gray-500">${st.className}</td><td class="p-2 text-center text-xs font-mono">${mins}dk ${secs}sn</td><td class="p-2 text-right font-bold text-indigo-600">${st.score}</td></tr>`; }).join('')}</tbody></table></div></div>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"><div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex flex-col items-center justify-center"><span class="text-sm text-indigo-600 font-bold mb-1">PUANINIZ</span><span class="text-4xl font-extrabold text-indigo-800">${studentResult.score}</span></div><div class="bg-orange-50 p-4 rounded-xl border border-orange-100 flex flex-col items-center justify-center relative overflow-hidden"><span class="text-sm text-orange-600 font-bold mb-1">GENEL SIRALAMA</span><div class="flex items-baseline gap-1"><span class="text-4xl font-extrabold text-orange-800">${myRank}</span><span class="text-sm text-gray-500 font-bold">/ ${totalStudents}</span></div></div><div class="bg-green-50 p-4 rounded-xl border border-green-100 flex flex-col items-center justify-center"><span class="text-sm text-green-600 font-bold mb-1">NET DURUMU</span><div class="text-sm font-bold text-gray-700"><span class="text-green-600">${studentResult.correct} D</span> - <span class="text-red-600">${studentResult.incorrect} Y</span> - <span class="text-gray-500">${studentResult.empty} B</span></div></div><div class="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col items-center justify-center"><span class="text-sm text-blue-600 font-bold mb-1">OKUL ORTALAMASI</span><span class="text-4xl font-extrabold text-blue-800">${(allData.reduce((acc, curr) => acc + parseFloat(curr.score), 0) / totalStudents).toFixed(2)}</span></div></div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div class="bg-white p-4 rounded-xl shadow-sm border"><h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2"><span>🏆 Sınıf Başarı Ortalamaları</span></h3><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-100"><tr><th class="p-2 text-left">Sınıf</th><th class="p-2 text-center">Öğrenci Sayısı</th><th class="p-2 text-right">Ortalama Puan</th></tr></thead><tbody class="divide-y">${classAverages.map(c => `<tr class="${c.className === studentResult.className ? 'bg-indigo-50' : ''}"><td class="p-2 font-bold text-gray-700">${c.className} ${c.className === studentResult.className ? '(Sınıfın)' : ''}</td><td class="p-2 text-center text-gray-600">${c.count}</td><td class="p-2 text-right font-mono font-bold text-indigo-600">${c.avg}</td></tr>`).join('')}</tbody></table></div></div><div class="bg-white p-4 rounded-xl shadow-sm border flex flex-col"><h3 class="font-bold text-gray-700 mb-4">📈 Gelişim Grafiğin</h3><div class="flex-grow min-h-[250px]"><canvas id="studentProgressChart"></canvas></div></div></div>`;
+                document.getElementById('mainContentArea').innerHTML = htmlContent;
+                setTimeout(() => { const ctx = document.getElementById('studentProgressChart').getContext('2d'); new Chart(ctx, { type: 'line', data: { labels: historyData.map(h => h.code), datasets: [{ label: 'Puan', data: historyData.map(h => h.score), borderColor: '#4f46e5', backgroundColor: 'rgba(79, 70, 229, 0.1)', borderWidth: 3, fill: true, tension: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } } }); }, 500);
+            } catch (e) { document.getElementById('mainContentArea').innerHTML = `<div class="text-center text-red-500 py-10"><p class="font-bold">Veriler alınırken hata oluştu.</p><p class="text-sm">${e.message}</p><button onclick="location.reload()" class="mt-4 button bg-gray-200 px-4 py-2 rounded">Tekrar Dene</button></div>`; }
+        }
+
+        window.downloadSimplePDF = function() {
+            try { if (!window.jspdf || !window.jspdf.jsPDF) return alert('PDF modülü yüklenmedi.'); const { jsPDF } = window.jspdf; const doc = new jsPDF();
+                const name = document.querySelector('h1.text-xl') ? document.querySelector('h1.text-xl').textContent.trim() : 'Ogrenci';
+                const score = document.querySelector('.text-indigo-800') ? document.querySelector('.text-indigo-800').textContent.trim() : '0';
+                doc.setFontSize(18); doc.setTextColor(40, 40, 40); doc.text("SINAV SONUC BELGESI", 105, 20, { align: 'center' });
+                doc.autoTable({ startY: 30, head: [['Ogrenci Bilgileri', 'Sinav Detaylari']], body: [[`Ad Soyad: ${name}`, `Tarih: ${new Date().toLocaleDateString('tr-TR')}`], [`Puan: ${score}`, `Sistem: Online`]], theme: 'grid', headStyles: { fillColor: [79, 70, 229] } });
+                doc.save(`${name}_Sonuc.pdf`);
+            } catch (error) { alert('PDF Hatası: ' + error.message); }
+        };
+        // --- ÖĞRENCİ VERİ YENİLEME FONKSİYONU (YENİ) ---
+        window.refreshStudentResult = async function() {
+            const btn = document.getElementById('refreshStudentBtn');
+            if(btn) { 
+                btn.innerHTML = "⌛ Yükleniyor..."; 
+                btn.disabled = true; 
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+
+            try {
+                // Hafızadaki öğrenci bilgisini kontrol et
+                if (!studentData || !studentData.examCode || !studentData.number) {
+                    alert("Oturum bilgisi zaman aşımına uğradı. Lütfen tekrar giriş yapın.");
+                    location.reload(); // Bilgi yoksa mecburen login ekranına at
+                    return;
+                }
+
+                const studentKey = `${studentData.examCode}_${studentData.number}`;
+                
+                // Veritabanından en güncel halini çek
+                const q = query(collection(db, "quiz_submissions"), where("studentKey", "==", studentKey));
+                const querySnapshot = await getDocs(q);
+
+                if (!querySnapshot.empty) {
+                    const freshData = querySnapshot.docs[0].data();
+                    // Ekranı yeni veriyle tekrar oluştur
+                    showStudentDashboard(freshData);
+                    
+                    // Kullanıcıya küçük bir bildirim (Opsiyonel)
+                    const toast = document.createElement('div');
+                    toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-50 animate-bounce';
+                    toast.innerText = 'Veriler Güncellendi!';
+                    document.body.appendChild(toast);
+                    setTimeout(() => toast.remove(), 2000);
+                } else {
+                    alert("Veri bulunamadı. Lütfen sayfayı yenileyip tekrar giriş yapın.");
+                }
+            } catch (error) {
+                console.error(error);
+                alert("Yenileme hatası: " + error.message);
+                // Hata olursa butonu eski haline getir
+                if(btn) { 
+                    btn.innerHTML = "🔄 Verileri Güncelle"; 
+                    btn.disabled = false; 
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            }
+        };
+
+       function calculateBadges(studentResult, rank, totalStudents, historyData) {
+            const badges = []; 
+            const score = parseFloat(studentResult.score || 0); 
+            const correct = parseInt(studentResult.correct || 0, 10); 
+            const incorrect = parseInt(studentResult.incorrect || 0, 10);
+
+            // 1. Puan Bazlı Rozetler
+            if (score >= 90) {
+                badges.push({ 
+                    name: "Sınav Şampiyonu", 
+                    icon: "🏆", 
+                    color: "bg-yellow-100 text-yellow-800 border border-yellow-200",
+                    desc: "Bu sınavdan 90 ve üzeri puan alarak şampiyonlar ligine girdin!" 
+                });
+            } else if (score >= 80) {
+                badges.push({ 
+                    name: "Mükemmel Başarı", 
+                    icon: "⭐", 
+                    color: "bg-purple-100 text-purple-800 border border-purple-200",
+                    desc: "80 puan barajını geçerek harika bir performans sergiledin." 
+                });
+            } else if (score >= 70) {
+                badges.push({ 
+                    name: "Başarılı Öğrenci", 
+                    icon: "👍", 
+                    color: "bg-blue-100 text-blue-800 border border-blue-200",
+                    desc: "70 puanın üzerinde not alarak başarını kanıtladın." 
+                });
+            }
+
+            // 2. Sıralama Bazlı Rozetler
+            if (rank <= 3) {
+                badges.push({ 
+                    name: "İlk 3", 
+                    icon: "👑", 
+                    color: "bg-red-100 text-red-800 border border-red-200",
+                    desc: "Sınıfındaki tüm arkadaşların arasında ilk 3'e girdin!" 
+                });
+            } else if (rank <= 10) {
+                badges.push({ 
+                    name: "İlk 10", 
+                    icon: "💎", 
+                    color: "bg-green-100 text-green-800 border border-green-200",
+                    desc: "Sıralamada en iyi 10 öğrenci arasında yer alıyorsun." 
+                });
+            }
+
+            // 3. Doğru/Yanlış Performansı
+            if (correct >= 18) {
+                badges.push({ 
+                    name: "Doğru Ustası", 
+                    icon: "✅", 
+                    color: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+                    desc: "Sınavda 18 veya daha fazla soruyu doğru cevapladın." 
+                });
+            }
+            if (incorrect <= 2) {
+                badges.push({ 
+                    name: "İsabet Ustası", 
+                    icon: "🎯", 
+                    color: "bg-indigo-100 text-indigo-800 border border-indigo-200",
+                    desc: "Çok dikkatliydin! 2 veya daha az yanlış yaptın." 
+                });
+            }
+
+            // 4. Geçmiş Karşılaştırması
+            if (Array.isArray(historyData) && historyData.length >= 2) { 
+                const lastScore = parseFloat(historyData[historyData.length - 2].score || 0); 
+                if (score > lastScore) {
+                    badges.push({ 
+                        name: "Gelişim Gösterdi", 
+                        icon: "📈", 
+                        color: "bg-cyan-100 text-cyan-800 border border-cyan-200",
+                        desc: "Bir önceki sınavına göre puanını yükselttin. İlerlemeye devam!" 
+                    });
+                }
+            }
+            
+            // 5. İlk Sınav Rozeti
+            if (Array.isArray(historyData) && historyData.length === 1) {
+                badges.push({ 
+                    name: "İlk Sınav", 
+                    icon: "🎪", 
+                    color: "bg-pink-100 text-pink-800 border border-pink-200",
+                    desc: "Sistemdeki ilk sınavını başarıyla tamamladın." 
+                });
+            }
+            
+            return badges;
+        }
+
+        // --- YENİ VE GELİŞMİŞ İSTATİSTİK MODÜLÜ ---
+        window.showExamStatistics = async (code) => {
+            showCustomAlert("Veriler Analiz Ediliyor...", "<div class='loader'></div>");
+            try {
+                // Paralel veri çekme
+                const [subSnap, listSnap] = await Promise.all([
+                    getDocs(query(collection(db, "quiz_submissions"), where("examCode", "==", code))),
+                    getDoc(doc(db, "student_lists", code))
+                ]);
+
+                const submissions = subSnap.docs.map(d => d.data());
+                const allStudentsList = listSnap.exists() ? listSnap.data().students : [];
+                
+                if (submissions.length === 0) return showCustomAlert("Veri Yok", "Bu sınava ait henüz hiç katılım olmamış.");
+
+                // 1. Genel İstatistikler
+                let totalScore = 0; 
+                let classStats = {}; 
+                let scoreDistribution = { '0-49': 0, '50-69': 0, '70-84': 0, '85-100': 0 };
+                
+                // Submission döngüsü ve Class/Score analizi
+                submissions.forEach(s => {
+                    const score = parseFloat(s.score); 
+                    totalScore += score;
+                    if (!classStats[s.className]) classStats[s.className] = { total: 0, count: 0, max: 0, min: 100, submissions: [] };
+                    
+                    classStats[s.className].total += score; 
+                    classStats[s.className].count += 1;
+                    if (score > classStats[s.className].max) classStats[s.className].max = score;
+                    if (score < classStats[s.className].min) classStats[s.className].min = score;
+                    classStats[s.className].submissions.push(s);
+
+                    if (score < 50) scoreDistribution['0-49']++; else if (score < 70) scoreDistribution['50-69']++; else if (score < 85) scoreDistribution['70-84']++; else scoreDistribution['85-100']++;
+                });
+
+                const generalAvg = (totalScore / submissions.length).toFixed(2);
+                const classLabels = Object.keys(classStats).sort();
+                const classAverages = classLabels.map(cls => (classStats[cls].total / classStats[cls].count).toFixed(2));
+
+                // 2. Girmeyen Öğrenciler Analizi
+                const submittedStudentNumbers = new Set(submissions.map(s => String(s.number).trim()));
+                let missingStudentsByClass = {};
+                let missingCount = 0;
+
+                allStudentsList.forEach(student => {
+                    if (!submittedStudentNumbers.has(String(student.number).trim())) {
+                        if (!missingStudentsByClass[student.className]) missingStudentsByClass[student.className] = [];
+                        missingStudentsByClass[student.className].push(student);
+                        missingCount++;
+                    }
+                });
+
+                // 3. Genel En İyi / En Kötü 5
+                const sortedByScore = [...submissions].sort((a,b) => parseFloat(b.score) - parseFloat(a.score));
+                const top5General = sortedByScore.slice(0, 5);
+                const bottom5General = sortedByScore.slice().reverse().slice(0, 5);
+
+                // HTML İçeriği Oluşturma
+                let content = `
+                    <div class="flex gap-4 mb-4 border-b pb-2 overflow-x-auto">
+                        <button class="stat-tab-btn active" onclick="window.switchStatTab('genel')">Genel Bakış</button>
+                        <button class="stat-tab-btn" onclick="window.switchStatTab('sinif-detay')">Sınıf Detay (Best/Worst)</button>
+                        <button class="stat-tab-btn" onclick="window.switchStatTab('girmeyenler')">Girmeyenler <span class="bg-red-100 text-red-600 px-2 rounded-full text-xs">${missingCount}</span></button>
+                    </div>
+
+                    <div id="stat-genel" class="stat-panel space-y-6 max-h-[65vh] overflow-y-auto pr-2">
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <div class="bg-blue-50 p-3 rounded-xl border border-blue-200 text-center"><div class="text-2xl font-extrabold text-blue-700">${submissions.length}</div><div class="text-xs font-bold text-blue-600">Toplam Katılım</div></div>
+                            <div class="bg-indigo-50 p-3 rounded-xl border border-indigo-200 text-center"><div class="text-2xl font-extrabold text-indigo-700">${generalAvg}</div><div class="text-xs font-bold text-indigo-600">Okul Ortalaması</div></div>
+                            <div class="bg-green-50 p-3 rounded-xl border border-green-200 text-center"><div class="text-2xl font-extrabold text-green-700">%${((scoreDistribution['50-69'] + scoreDistribution['70-84'] + scoreDistribution['85-100']) * 100 / submissions.length).toFixed(0)}</div><div class="text-xs font-bold text-green-600">Başarı Oranı</div></div>
+                            <div class="bg-purple-50 p-3 rounded-xl border border-purple-200 text-center"><div class="text-2xl font-extrabold text-purple-700">${classLabels.length}</div><div class="text-xs font-bold text-purple-600">Sınıf Sayısı</div></div>
+                        </div>
+                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-white p-3 border rounded-xl shadow-sm"><h4 class="text-sm font-bold text-gray-700 mb-2 text-center">Sınıf Ortalamaları</h4><canvas id="classChart"></canvas></div>
+                            <div class="bg-white p-3 border rounded-xl shadow-sm"><h4 class="text-sm font-bold text-gray-700 mb-2 text-center">Puan Dağılımı</h4><canvas id="distChart"></canvas></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-green-50 p-3 border border-green-200 rounded-xl">
+                                <h4 class="text-sm font-bold text-green-800 mb-2 text-center">🏆 Okul Geneli En İyi 5</h4>
+                                <ul class="text-xs space-y-1">
+                                    ${top5General.map((s,i) => `<li class="flex justify-between border-b border-green-200 pb-1"><span>${i+1}. ${s.name} (${s.className})</span><span class="font-bold">${s.score}</span></li>`).join('')}
+                                </ul>
+                            </div>
+                            <div class="bg-red-50 p-3 border border-red-200 rounded-xl">
+                                <h4 class="text-sm font-bold text-red-800 mb-2 text-center">⚠️ Okul Geneli En Düşük 5</h4>
+                                <ul class="text-xs space-y-1">
+                                    ${bottom5General.map((s,i) => `<li class="flex justify-between border-b border-red-200 pb-1"><span>${i+1}. ${s.name} (${s.className})</span><span class="font-bold">${s.score}</span></li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="stat-sinif-detay" class="stat-panel hidden space-y-6 max-h-[65vh] overflow-y-auto pr-2">
+                        ${classLabels.map(cls => {
+                            const subs = classStats[cls].submissions.sort((a,b) => parseFloat(b.score) - parseFloat(a.score));
+                            const top5 = subs.slice(0, 5);
+                            const bottom5 = subs.slice().reverse().slice(0, 5);
+                            const avg = (classStats[cls].total / classStats[cls].count).toFixed(2);
+                            return `
+                            <div class="bg-white border rounded-xl p-4 shadow-sm">
+                                <div class="flex justify-between items-center mb-3 border-b pb-2">
+                                    <h3 class="font-bold text-lg text-indigo-700">${cls} Sınıfı</h3>
+                                    <span class="text-xs font-bold bg-indigo-100 text-indigo-800 px-2 py-1 rounded">Ort: ${avg}</span>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     <div>
+                                        <h5 class="text-xs font-bold text-green-700 mb-1">En İyi 5</h5>
+                                        <ul class="text-xs text-gray-600 space-y-1">${top5.map(s=>`<li class="flex justify-between"><span>${s.name}</span><span class="font-bold">${s.score}</span></li>`).join('')}</ul>
+                                     </div>
+                                     <div>
+                                        <h5 class="text-xs font-bold text-red-700 mb-1">En Düşük 5</h5>
+                                        <ul class="text-xs text-gray-600 space-y-1">${bottom5.map(s=>`<li class="flex justify-between"><span>${s.name}</span><span class="font-bold">${s.score}</span></li>`).join('')}</ul>
+                                     </div>
+                                </div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+
+                    <div id="stat-girmeyenler" class="stat-panel hidden space-y-4 max-h-[65vh] overflow-y-auto pr-2">
+                         ${missingCount === 0 ? '<div class="text-center text-green-600 font-bold p-10">Harika! Herkes sınava girmiş.</div>' : ''}
+                         ${allStudentsList.length === 0 ? '<div class="text-center text-red-500 font-bold p-10">⚠️ Öğrenci listesi yüklenmediği için girmeyenler hesaplanamıyor. Lütfen "Öğrenciler" sekmesinden liste yükleyiniz.</div>' : ''}
+                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            ${Object.keys(missingStudentsByClass).sort().map(cls => `
+                                <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+                                    <h4 class="font-bold text-red-800 border-b border-red-200 mb-2 flex justify-between"><span>${cls}</span> <span>${missingStudentsByClass[cls].length} Kişi</span></h4>
+                                    <ul class="text-xs text-red-700 space-y-1 max-h-40 overflow-y-auto">
+                                        ${missingStudentsByClass[cls].map(s => `<li>${s.number} - ${s.name}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            `).join('')}
+                         </div>
+                    </div>
+                `;
+
+                const modalContent = document.getElementById('modalContent');
+                modalContent.innerHTML = `<div class="flex justify-between items-center mb-4 border-b pb-2"><h3 class="text-xl font-bold text-gray-800">${code} - Detaylı Analiz</h3><button onclick="document.getElementById('customModal').classList.add('hidden')" class="text-gray-500 hover:text-red-500 font-bold text-2xl">&times;</button></div>${content}`;
+                document.getElementById('customModal').classList.remove('hidden'); document.getElementById('customModal').classList.add('flex');
+
+                setTimeout(() => {
+                    new Chart(document.getElementById('classChart'), { type: 'bar', data: { labels: classLabels, datasets: [{ label: 'Ortalama Puan', data: classAverages, backgroundColor: '#4f46e5', borderRadius: 4 }] }, options: { scales: { y: { beginAtZero: true, max: 100 } }, plugins: { legend: { display: false } } } });
+                    new Chart(document.getElementById('distChart'), { type: 'doughnut', data: { labels: ['0-49', '50-69', '70-84', '85-100'], datasets: [{ data: [scoreDistribution['0-49'], scoreDistribution['50-69'], scoreDistribution['70-84'], scoreDistribution['85-100']], backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'] }] }, options: { plugins: { legend: { position: 'bottom' } } } });
+                }, 100);
+
+                window.switchStatTab = (tabId) => {
+                    document.querySelectorAll('.stat-panel').forEach(p => p.classList.add('hidden'));
+                    document.getElementById('stat-' + tabId).classList.remove('hidden');
+                    document.querySelectorAll('.stat-tab-btn').forEach(b => b.classList.remove('active'));
+                    event.target.classList.add('active');
+                };
+
+            } catch (e) { showCustomAlert("Hata", "İstatistikler oluşturulurken hata: " + e.message); }
+        };
+
+        window.viewStudentResult = async (docId) => {
+            window.isAdminViewingResult = true; 
+            showCustomAlert("Yükleniyor", "<div class='loader'></div>");
+            try {
+                const docSnap = await getDoc(doc(db, "quiz_submissions", docId));
+                if (docSnap.exists()) { document.getElementById('customModal').classList.add('hidden'); showStudentDashboard(docSnap.data()); } else { alert("Kayıt bulunamadı."); }
+            } catch (e) { alert("Hata: " + e.message); }
+        };
+
+        window.returnToAdminPanel = () => {
+            window.isAdminViewingResult = false;
+            document.getElementById('app').className = 'app-card teacher-mode';
+            showDashboard(); window.changeTab('results');
+        };
+
+        // OPTİMİZASYON: Manuel Yenileme Fonksiyonu
+        window.loadOnlineStudents = async function() {
+            const tableBody = document.getElementById('onlineStudentsTable');
+            const totalOnline = document.getElementById('totalOnlineCount');
+            const activeExams = document.getElementById('activeExamsCount');
+            const totalClasses = document.getElementById('totalClassesCount');
+            const classDist = document.getElementById('classDistribution');
+            const examDist = document.getElementById('examDistribution');
+            
+            tableBody.innerHTML = '<tr><td colspan="7" class="p-4 text-center"><div class="loader mx-auto"></div><div class="mt-2 text-xs">Veriler güncelleniyor...</div></td></tr>';
+            
+            try {
+                // Sadece çağrıldığında 1 kez okur (Realtime listener yok)
+                const onlineSnap = await getDocs(collection(db, "active_sessions"));
+                
+                const onlineStudents = onlineSnap.docs.map(doc => ({ id: doc.id, name: doc.data().name || 'Bilinmiyor', number: doc.data().number || '', className: doc.data().className || 'Belirsiz', examCode: doc.data().examCode || 'Bilinmiyor', currentQuestionIndex: doc.data().currentQuestionIndex || 0, timeLeft: doc.data().timeLeft || 0, lastUpdated: doc.data().lastUpdated, focusLossCount: doc.data().focusLossCount || 0, lastUpdatedTime: doc.data().lastUpdated?.toDate ? doc.data().lastUpdated.toDate().getTime() : Date.now() }));
+                const now = Date.now(); const FIVE_MINUTES = 5 * 60 * 1000;
+                
+                // 5 dakikadan eski oturumları listede gösterme (offline kabul et)
+                const activeOnlineStudents = onlineStudents.filter(student => (now - student.lastUpdatedTime) < FIVE_MINUTES);
+                
+                const classStats = {}; activeOnlineStudents.forEach(s => { classStats[s.className] = (classStats[s.className] || 0) + 1; });
+                const examStats = {}; activeOnlineStudents.forEach(s => { examStats[s.examCode] = (examStats[s.examCode] || 0) + 1; });
+                
+                totalOnline.textContent = activeOnlineStudents.length; activeExams.textContent = Object.keys(examStats).length; totalClasses.textContent = Object.keys(classStats).length;
+                
+                classDist.innerHTML = Object.entries(classStats).sort((a, b) => b[1] - a[1]).map(([c, count]) => `<div class="flex justify-between items-center p-2 border-b border-gray-100"><span class="font-medium text-gray-700">${c}</span><span class="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-bold">${count}</span></div>`).join('') || '<div class="text-center text-gray-500 py-4">Sınıf yok</div>';
+                examDist.innerHTML = Object.entries(examStats).sort((a, b) => b[1] - a[1]).map(([e, count]) => `<div class="flex justify-between items-center p-2 border-b border-gray-100"><span class="font-mono text-gray-700">${e}</span><span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-bold">${count}</span></div>`).join('') || '<div class="text-center text-gray-500 py-4">Sınav yok</div>';
+
+                if (activeOnlineStudents.length === 0) { tableBody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-gray-500">🟡 Aktif öğrenci yok (Verileri yenilemek için butona basın)</td></tr>'; } 
+                else {
+                    tableBody.innerHTML = activeOnlineStudents.map(s => {
+                        const connTime = Math.floor((now - s.lastUpdatedTime) / 60000);
+                        const mins = Math.floor(s.timeLeft / 60); const secs = s.timeLeft % 60;
+                        let status = "🟢 Aktif", color = "text-green-600"; if (connTime > 2) { status = "🟡 Beklemede"; color = "text-orange-600"; }
+                        return `<tr class="hover:bg-green-50 transition-colors"><td class="p-3"><div class="font-bold text-gray-800">${s.name}</div><div class="text-xs text-gray-500">${s.number}</div><div class="text-xs ${color}">${status}</div></td><td class="p-3 font-medium">${s.className}</td><td class="p-3 font-mono text-blue-600 font-bold">${s.examCode}</td><td class="p-3 text-center"><span class="bg-indigo-100 text-indigo-800 px-2 py-1 rounded-full text-xs font-bold">${s.currentQuestionIndex + 1}. Soru</span></td><td class="p-3 font-mono text-orange-600 font-bold">${mins}:${secs < 10 ? '0' : ''}${secs}</td><td class="p-3 text-sm text-gray-600">${connTime} dk</td><td class="p-3 text-center"><span class="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-bold">${s.focusLossCount || 0}</span></td></tr>`;
+                    }).join('');
+                }
+            } catch (e) { tableBody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-red-500">Hata: ' + e.message + '</td></tr>'; }
+        };
+        
+        window.refreshOnlineStudents = () => window.loadOnlineStudents();
+        window.exportOnlineStudents = async () => { try { const snap = await getDocs(collection(db, "active_sessions")); const data = snap.docs.map(d => ({ 'Ad Soyad': d.data().name, 'Sınıf': d.data().className, 'Sınav': d.data().examCode, 'Soru': (d.data().currentQuestionIndex||0)+1, 'Kalan Süre': d.data().timeLeft, 'Son İşlem': d.data().lastUpdated?.toDate().toLocaleString() })); if(data.length===0) return alert("Veri yok"); const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Online"); XLSX.writeFile(wb, "online_ogrenciler.xlsx"); } catch(e){ alert(e.message); } };
+
+        initializeFirebase();
+    </script>
+</body>
+</html>
+
+
 
