@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sınav Sistemi V17 (Gelişmiş İstatistik)</title>
+    <title>Sınav Sistemi V18 (Optimize Edilmiş)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script> 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script> <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -65,7 +66,6 @@
             getFirestore, 
             doc, 
             collection, 
-            onSnapshot, 
             serverTimestamp, 
             query, 
             where, 
@@ -117,9 +117,8 @@
         let focusLossCount = 0;
         let currentSessionDocId = null;
         
-        // --- YENİ EKLENEN SÜRE DEĞİŞKENLERİ ---
-        let questionDurations = []; // Her soruda geçen süre
-        let lastQuestionStartTime = 0; // O anki soruya başlama zamanı
+        let questionDurations = []; 
+        let lastQuestionStartTime = 0; 
         
         // Timer Değişkenleri
         let timerInterval = null;
@@ -524,31 +523,28 @@
             return shuffled;
         }
 
-        // GÜNCELLENMİŞ: Başlatma Fonksiyonu (Süre Takibi Ekli)
         function startNewSession(seed) {
             questionOrder = seededShuffle(Array.from({length: quizQuestions.length}, (_, i) => i), seed);
             selectedAnswers = Array(quizQuestions.length).fill(null);
-            questionDurations = Array(quizQuestions.length).fill(0); // YENİ
+            questionDurations = Array(quizQuestions.length).fill(0); 
             currentQuestionIndex = 0;
             focusLossCount = 0;
             examendTimeStamp = Date.now() + (currentExamConfig.time_limit * 1000);
-            lastQuestionStartTime = Date.now(); // YENİ
+            lastQuestionStartTime = Date.now(); 
         }
 
-        // GÜNCELLENMİŞ: Geri Yükleme Fonksiyonu
         function restoreSession(session) {
             questionOrder = session.questionOrder || [];
             selectedAnswers = session.selectedAnswers || [];
-            questionDurations = session.questionDurations || Array(questionOrder.length).fill(0); // YENİ
+            questionDurations = session.questionDurations || Array(questionOrder.length).fill(0);
             currentQuestionIndex = session.currentQuestionIndex || 0;
             focusLossCount = session.focusLossCount || 0;
             currentSessionDocId = session.id;
             const remaining = session.timeLeft || currentExamConfig.time_limit;
             examendTimeStamp = Date.now() + (remaining * 1000);
-            lastQuestionStartTime = Date.now(); // YENİ
+            lastQuestionStartTime = Date.now(); 
         }
 
-        // YENİ: Soru Süresi Güncelleme Yardımcısı
         function updateQuestionTime() {
             const now = Date.now();
             const spent = (now - lastQuestionStartTime) / 1000;
@@ -581,7 +577,6 @@
             setupSecurityListeners();
             startAutoSave();
             
-            // GÜNCELLENMİŞ BUTON OLAYLARI (Süre Takibi)
             document.getElementById('prevBtn').onclick = () => { 
                 if(currentQuestionIndex > 0) { 
                     updateQuestionTime(); 
@@ -660,22 +655,22 @@
             document.addEventListener('contextmenu', event => event.preventDefault());
         }
 
-        function startAutoSave() { autoSaveInterval = setInterval(() => saveProgress(), 15000); }
+        // OPTİMİZASYON: Auto-save süresi 15sn -> 45sn
+        function startAutoSave() { autoSaveInterval = setInterval(() => saveProgress(), 45000); }
 
         async function saveProgress() {
-            if (isTeacherMode && isPreviewMode) return;
-            if (isTeacherMode || !isDbConnected) return;
+            if (isTeacherMode || !isDbConnected) return; // Öğretmen veya önizleme modunda kayıt yapma
             try {
                 const now = Date.now();
                 const remainingSeconds = Math.floor((examendTimeStamp - now) / 1000);
                 if (!validateStudentData(studentData)) return;
-                // GÜNCELLENMİŞ KAYIT VERİSİ
+                
                 const data = { 
                     ...studentData, 
                     studentKey: `${sanitizeExamCode(studentData.examCode)}_${studentData.number}`, 
                     questionOrder, 
                     selectedAnswers, 
-                    questionDurations, // EKLENDİ
+                    questionDurations, 
                     currentQuestionIndex, 
                     timeLeft: remainingSeconds > 0 ? remainingSeconds : 0, 
                     focusLossCount, 
@@ -723,7 +718,6 @@
             const score = (currentQuestions.length > 0) ? (c * 100 / currentQuestions.length).toFixed(2) : 0;
             let ip = "Gizli"; try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); ip = d.ip; } catch(err){}
 
-            // GÜNCELLENMİŞ FİNAL VERİSİ
             const finalData = { 
                 ...studentData, 
                 studentKey: `${studentData.examCode}_${studentData.number}`, 
@@ -737,12 +731,11 @@
                 ipAddress: ip, 
                 questionOrder, 
                 allAnswers: selectedAnswers,
-                questionDurations // EKLENDİ
+                questionDurations 
             };
 
             if(isDbConnected) { try { await addDoc(collection(db, "quiz_submissions"), finalData); if (currentSessionDocId) await deleteDoc(doc(db, "active_sessions", currentSessionDocId)); } catch(e) { alert("Sunucu Hatası: Kaydedilemedi."); } }
-            // Burası artık direkt showResultScreen yerine showStudentDashboard'a gitmeli ama 
-            // eski kod yapısını bozmamak için dashboard'u çağırıyoruz
+            
             showStudentDashboard(finalData);
         }
 
@@ -778,13 +771,13 @@
     <button onclick="window.changeTab('questions')" class="flex-1 min-w-[120px] px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded shadow text-sm font-semibold">📝 Sorular</button>
     <button onclick="window.changeTab('lists')" class="flex-1 min-w-[120px] px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded shadow text-sm font-semibold">👥 Öğrenciler</button>
     <button onclick="window.changeTab('myexams')" class="flex-1 min-w-[120px] px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded shadow text-sm font-semibold">📂 Sınavlarım</button>
-    <!-- █████ BURAYA YENİ BUTON EKLE █████ -->
     <button onclick="window.changeTab('online')" class="flex-1 min-w-[120px] px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded shadow text-sm font-semibold">👁️ Online Öğrenciler</button>
 </div>
                 <div id="tab-results" class="tab-content">
                     <div class="flex justify-between items-center mb-4">
-                         <h2 class="font-bold text-lg text-gray-700">Sonuç Listesi</h2>
+                         <h2 class="font-bold text-lg text-gray-700">Sonuç Listesi (Manuel Yenileme)</h2>
                          <div class="flex gap-2">
+                             <button onclick="window.loadResults()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1 rounded text-sm font-bold shadow animate-pulse">↻ Sonuçları Yenile</button>
                              <button onclick="window.exportToExcel()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">Excel İndir</button>
                              <button onclick="window.exportDetailedResults()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">Detaylı Excel</button>
                          </div>
@@ -802,13 +795,14 @@
                             <tbody id="resultsTableBody" class="bg-white divide-y"></tbody>
                         </table>
                     </div>
+                    <p class="text-xs text-gray-400 mt-2 text-center">* Sonuçlar otomatik güncellenmez. Yeni verileri görmek için "Sonuçları Yenile" butonuna basınız.</p>
                 </div>
 <div id="tab-online" class="tab-content hidden">
     <div class="flex justify-between items-center mb-4">
         <h2 class="font-bold text-lg text-gray-700">🟢 Online Öğrenciler</h2>
         <div class="flex gap-2">
-            <button onclick="window.refreshOnlineStudents()" class="bg-green-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1">
-                <span>🔄</span> Yenile
+            <button onclick="window.refreshOnlineStudents()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1 shadow">
+                <span>🔄</span> Listeyi Yenile
             </button>
             <button onclick="window.exportOnlineStudents()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1">
                 <span>📊</span> Excel İndir
@@ -862,7 +856,7 @@
                     </tr>
                 </thead>
                 <tbody id="onlineStudentsTable" class="bg-white divide-y divide-gray-100">
-                    <tr><td colspan="7" class="p-4 text-center text-gray-500">Online öğrenci bulunmuyor</td></tr>
+                    <tr><td colspan="7" class="p-4 text-center text-gray-500">Verileri görmek için "Listeyi Yenile" butonuna basınız.</td></tr>
                 </tbody>
             </table>
         </div>
@@ -949,10 +943,10 @@
           window.changeTab = (t) => {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
     document.getElementById('tab-' + t).classList.remove('hidden');
-    if(t === 'results') loadResults();
+    // OPTİMİZASYON: Otomatik yükleme kaldırıldı. Manuel tetiklenecek.
+    if(t === 'results') { /* loadResults artık otomatik değil */ }
     if(t === 'myexams') loadMyExams();
     if(t === 'questions' || t === 'lists') window.populateExamSelects();
-    // █████ BURAYA YENİ SATIR EKLE █████
     if(t === 'online') window.loadOnlineStudents();
 };
             document.getElementById('btnSaveSettings').onclick = async () => {
@@ -1064,13 +1058,18 @@
                 };
                 reader.readAsArrayBuffer(file);
             };
-            loadResults();
+            // loadResults(); // OPTİMİZASYON: Başlangıçta yüklemeyi kaldırabiliriz veya manuel bırakabiliriz.
         }
 
-        function loadResults() {
+        // OPTİMİZASYON: onSnapshot yerine getDocs kullanarak manuel refresh (Okuma tasarrufu)
+        window.loadResults = async function() {
             const tbody = document.getElementById('resultsTableBody');
-            tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center">Yükleniyor...</td></tr>';
-            onSnapshot(query(collection(db, "quiz_submissions"), orderBy("timestamp", "desc"), limit(500)), (snap) => {
+            tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center"><div class="loader"></div> Veriler çekiliyor (Manuel Mod)...</td></tr>';
+            
+            try {
+                const q = query(collection(db, "quiz_submissions"), orderBy("timestamp", "desc"), limit(500));
+                const snap = await getDocs(q); // onSnapshot YERİNE getDocs
+                
                 allSubmissions = snap.docs.map(d => {
                     const data = d.data();
                     let dateTime = "Bilinmiyor";
@@ -1082,7 +1081,10 @@
                 });
                 renderResultsTable();
                 updateClassFilter();
-            });
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-red-500">Veri çekme hatası: ' + e.message + '</td></tr>';
+            }
+
             document.getElementById('filterCode').oninput = renderResultsTable;
             document.getElementById('filterName').oninput = renderResultsTable;
             document.getElementById('filterClass').onchange = renderResultsTable;
@@ -1095,7 +1097,6 @@
             classes.forEach(c => { classFilter.innerHTML += `<option value="${c}">${c}</option>`; });
         }
 
-        // GÜNCELLENMİŞ: Yönetici Tablosu (Süre Butonu Eklendi)
         function renderResultsTable() {
             const fCode = document.getElementById('filterCode').value.toLowerCase();
             const fName = document.getElementById('filterName').value.toLowerCase();
@@ -1110,7 +1111,6 @@
             }).join('');
         }
 
-        // YENİ: Süre Analizi Penceresi
         window.showTimeAnalysis = (docId) => {
             const sub = allSubmissions.find(s => s.id === docId);
             if (!sub || !sub.questionDurations) return alert("Bu öğrenci için detaylı süre verisi bulunamadı (Eski kayıt olabilir).");
@@ -1140,7 +1140,7 @@
             showCustomAlert("Süre Analizi", content);
         };
 
-        window.deleteSub = async (id) => { if(confirm("Silmek istiyor musunuz?")) await deleteDoc(doc(db, "quiz_submissions", id)); }
+        window.deleteSub = async (id) => { if(confirm("Silmek istiyor musunuz?")) await deleteDoc(doc(db, "quiz_submissions", id)); window.loadResults(); } // Silme işleminden sonra listeyi yenile
 
         window.bulkDeleteFiltered = async () => {
             const fCode = document.getElementById('filterCode').value.toLowerCase();
@@ -1148,12 +1148,20 @@
             const fClass = document.getElementById('filterClass').value;
             const filtered = allSubmissions.filter(s => (s.examCode||'').toLowerCase().includes(fCode) && (s.name||'').toLowerCase().includes(fName) && (!fClass || s.className === fClass));
             if(filtered.length === 0) return alert("Kayıt yok.");
-            if(confirm(`${filtered.length} kaydı silmek istiyor musunuz?`)) { for(const item of filtered) await deleteDoc(doc(db, "quiz_submissions", item.id)); alert("Silindi."); }
+            if(confirm(`${filtered.length} kaydı silmek istiyor musunuz?`)) { 
+                for(const item of filtered) await deleteDoc(doc(db, "quiz_submissions", item.id)); 
+                alert("Silindi."); 
+                window.loadResults(); // Listeyi yenile
+            }
         }
 
         window.bulkDeleteAll = async () => {
             if(allSubmissions.length === 0) return alert("Kayıt yok.");
-            if(confirm(`TÜM kayıtları (${allSubmissions.length} adet) silmek istediğinize emin misiniz?`)) { for(const item of allSubmissions) await deleteDoc(doc(db, "quiz_submissions", item.id)); alert("Tümü silindi."); }
+            if(confirm(`TÜM kayıtları (${allSubmissions.length} adet) silmek istediğinize emin misiniz?`)) { 
+                for(const item of allSubmissions) await deleteDoc(doc(db, "quiz_submissions", item.id)); 
+                alert("Tümü silindi."); 
+                window.loadResults(); // Listeyi yenile
+            }
         }
         
         window.exportToExcel = () => {
@@ -1463,7 +1471,7 @@
             if(typeof showDashboard === 'function') { showDashboard(); if(window.changeTab) window.changeTab('myexams'); } else { location.reload(); }
         };
 
-        // --- GÜNCELLENMİŞ ÖĞRENCİ PANELİ (İlk 10 Eklendi) ---
+        // --- GÜNCELLENMİŞ ÖĞRENCİ PANELİ ---
         async function showStudentDashboard(studentResult) {
             document.getElementById('connectionStatus').classList.add('hidden');
             document.getElementById('app').className = 'app-card max-w-6xl w-full';
@@ -1473,7 +1481,10 @@
                         <h1 class="text-xl font-bold">${studentResult.name}</h1>
                         <span class="text-xs opacity-80">${studentResult.examCode} Raporu</span>
                     </div>
-                    <button onclick="location.reload()" class="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-2 rounded font-bold">Çıkış</button>
+                    <div>
+                        <button onclick="location.reload()" class="bg-indigo-500 hover:bg-indigo-600 text-white text-xs px-3 py-2 rounded font-bold mr-2">Sayfayı Yenile</button>
+                        <button onclick="location.reload()" class="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-2 rounded font-bold">Çıkış</button>
+                    </div>
                 </div>`;
 
             document.getElementById('mainContentArea').innerHTML = `
@@ -1484,6 +1495,7 @@
             `;
 
             try {
+                // OPTİMİZASYON: Verileri sadece bu fonksiyon çağrıldığında bir kez çekiyoruz. Dinamik dinleme yok.
                 const allResultsQuery = query(collection(db, "quiz_submissions"), where("examCode", "==", studentResult.examCode));
                 const allSnap = await getDocs(allResultsQuery);
                 const allData = allSnap.docs.map(d => d.data());
@@ -1512,7 +1524,6 @@
 
                 const badges = calculateBadges(studentResult, myRank, totalStudents, historyData);
 
-                // İLK 10 HESAPLAMA (YENİ)
                 const top10 = allData
                     .sort((a, b) => {
                         const scoreDiff = parseFloat(b.score) - parseFloat(a.score);
@@ -1577,8 +1588,6 @@
             }
         }
 
-        // --- GÜNCELLENMİŞ PDF İNDİRME (Tablolu) ---
-        // Helper: güvenli textContent alma
         function safeText(selector, fallback = '') {
             const el = document.querySelector(selector);
             return el && el.textContent ? el.textContent.trim() : fallback;
@@ -1610,7 +1619,6 @@
                     headStyles: { fillColor: [79, 70, 229] }
                 });
 
-                // İstatistikler için DOM'dan veri çekme (Regex ile sayıları ayıklama)
                 const correctEl = document.querySelector('.text-green-600');
                 const incorrectEl = document.querySelector('.text-red-600');
                 const emptyEl = document.querySelector('.text-gray-500');
@@ -1667,7 +1675,8 @@
             if (Array.isArray(historyData) && historyData.length === 1) badges.push({ name: "İlk Sınav", icon: "🎪", color: "bg-pink-100 text-pink-800 border border-pink-200" });
             return badges;
         }
-// ONLINE ÖĞRENCİ FONKSİYONLARI
+
+// ONLINE ÖĞRENCİ FONKSİYONLARI (MANUEL YENİLEME EKLENDİ)
 window.loadOnlineStudents = async function() {
     const tableBody = document.getElementById('onlineStudentsTable');
     const totalOnline = document.getElementById('totalOnlineCount');
@@ -1676,10 +1685,10 @@ window.loadOnlineStudents = async function() {
     const classDist = document.getElementById('classDistribution');
     const examDist = document.getElementById('examDistribution');
 
-    tableBody.innerHTML = '<tr><td colspan="7" class="p-4 text-center"><div class="loader mx-auto"></div><p class="text-sm text-gray-500 mt-2">Online öğrenciler yükleniyor...</p></td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="7" class="p-4 text-center"><div class="loader mx-auto"></div><p class="text-sm text-gray-500 mt-2">Online veriler çekiliyor (Manuel Mod)...</p></td></tr>';
 
     try {
-        const onlineSnap = await getDocs(collection(db, "active_sessions"));
+        const onlineSnap = await getDocs(collection(db, "active_sessions")); // Sadece manuel çağrılınca okur
         const onlineStudents = onlineSnap.docs.map(doc => {
             const data = doc.data();
             return {
@@ -1741,7 +1750,7 @@ window.loadOnlineStudents = async function() {
             `).join('') || '<div class="text-center text-gray-500 py-4">Sınav bilgisi bulunmuyor</div>';
 
         if (activeOnlineStudents.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-gray-500">🟡 Şu anda aktif online öğrenci bulunmuyor</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-gray-500">🟡 Şu anda aktif online öğrenci bulunmuyor veya liste yenilenmedi.</td></tr>';
         } else {
             tableBody.innerHTML = activeOnlineStudents.map(student => {
                 const connectionTime = Math.floor((now - student.lastUpdatedTime) / 60000);
