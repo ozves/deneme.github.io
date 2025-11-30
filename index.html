@@ -59,45 +59,6 @@
     </div>
 
     <script type="module">
-
-        // 1. SIRALAMA DURUMUNU TANIMLA
-// Varsayılan olarak puanı yüksekten düşüğe (desc) sırala.
-let currentSortField = 'score';
-let currentSortDirection = 'desc';
-
-// 2. SIRALAMA FONKSİYONUNU OLUŞTUR
-window.setSort = (field) => {
-    // Eğer aynı alana tıklanırsa, sıralama yönünü tersine çevir (asc/desc)
-    if (field === currentSortField) {
-        currentSortDirection = currentSortDirection === 'desc' ? 'asc' : 'desc';
-    } else {
-        // Yeni bir alana tıklanırsa, o alanı ayarla ve varsayılan olarak yüksekten düşüğe (desc) sırala
-        currentSortField = field;
-        currentSortDirection = 'desc'; 
-    }
-
-    // Okları güncelle
-    updateSortArrows(); 
-    
-    // Yeni sıralama ile sonuçları tekrar yükle
-    window.loadResults(); 
-};
-
-// Ok ikonlarını güncelleyen yardımcı fonksiyon
-function updateSortArrows() {
-    // Önce tüm okları temizle
-    document.querySelectorAll('[id^="sort-icon-"]').forEach(el => el.innerHTML = '');
-
-    // Aktif alana oku yerleştir
-    const iconSpan = document.getElementById(`sort-icon-${currentSortField}`);
-    if (iconSpan) {
-        // ▲: Yükselen (Ascending) | ▼: Düşen (Descending)
-        iconSpan.innerHTML = currentSortDirection === 'desc' ? ' ▼' : ' ▲'; 
-    }
-}
-// Sayfa yüklendiğinde varsayılan okları göster
-// Bu fonksiyonu ana script'in sonuna doğru çağırabilirsiniz.
-// updateSortArrows();
        
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
@@ -594,7 +555,7 @@ function updateSortArrows() {
             <div id="tab-results" class="tab-content">
                 <div class="flex justify-between items-center mb-4"><h2 class="font-bold text-lg text-gray-700">Sonuç Listesi</h2><div class="flex gap-2"><button onclick="window.loadResults()" class="bg-indigo-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1">🔄 Yenile</button><button onclick="window.exportToExcel()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">Excel İndir</button><button onclick="window.exportDetailedResults()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">Detaylı Excel</button></div></div>
                 <div class="flex flex-wrap gap-2 mb-4"><input id="filterCode" placeholder="Kod Ara" class="p-2 border rounded text-sm w-24"><input id="filterName" placeholder="İsim Ara" class="p-2 border rounded text-sm flex-1"><select id="filterClass" class="p-2 border rounded text-sm w-32"><option value="">Tüm Sınıflar</option></select><button onclick="window.bulkDeleteFiltered()" class="bg-red-600 text-white px-3 py-1 rounded text-sm">Filtrelenmişleri Sil</button><button onclick="window.bulkDeleteAll()" class="bg-red-800 text-white px-3 py-1 rounded text-sm">Tümünü Sil</button></div>
-                <div class="overflow-auto max-h-[500px] border rounded-lg"><table class="min-w-full divide-y divide-gray-200 text-sm"><thead class="bg-gray-100 sticky top-0"><tr><th class="p-3 text-left">Öğrenci</th><th class="cursor-pointer hover:bg-gray-100" onclick="window.setSort('score')">Puan <span id="sort-icon-score"></span></th><th class="p-3 text-left">D/Y/B</th><th class="p-3 text-left">Süre</th><th class="p-3 text-left">Odak Kaybı</th><th class="p-3 text-left">IP</th><th class="cursor-pointer hover:bg-gray-100" onclick="window.setSort('timestamp')">Tarih/Saat <span id="sort-icon-timestamp"></span></th><th class="p-3 text-left">İşlem</th></tr></thead><tbody id="resultsTableBody" class="bg-white divide-y"></tbody></table></div>
+                <div class="overflow-auto max-h-[500px] border rounded-lg"><table class="min-w-full divide-y divide-gray-200 text-sm"><thead class="bg-gray-100 sticky top-0"><tr><th class="p-3 text-left">Öğrenci</th><th class="p-3 text-left">Kod</th><th class="p-3 text-left">Puan</th><th class="p-3 text-left">D/Y/B</th><th class="p-3 text-left">Süre</th><th class="p-3 text-left">Odak Kaybı</th><th class="p-3 text-left">IP</th><th class="p-3 text-left">Tarih/Saat</th><th class="p-3 text-left">İşlem</th></tr></thead><tbody id="resultsTableBody" class="bg-white divide-y"></tbody></table></div>
             </div>
 
             <div id="tab-online" class="tab-content hidden">
@@ -679,12 +640,7 @@ function updateSortArrows() {
             
             try {
                 // Sadece son 500 kaydı çek (Okuma kotası için)
-               // Yeni dinamik sıralama
-// currentSortField ve currentSortDirection değişkenlerini kullanır.
-q = query(q, 
-    orderBy(currentSortField, currentSortDirection), 
-    limit(250) // Veya tercih ettiğiniz limit
-);
+                const q = query(collection(db, "quiz_submissions"), orderBy("timestamp", "desc"), limit(250));
                 const snap = await getDocs(q);
                 
                 allSubmissions = snap.docs.map(d => { 
@@ -1249,8 +1205,6 @@ q = query(q,
     </script>
 </body>
 </html>
-
-
 
 
 
