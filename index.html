@@ -634,13 +634,13 @@
         }
 
         // OPTİMİZASYON: onSnapshot YERİNE getDocs KULLANILDI (MANUEL YENİLEME)
-        async function loadResults() {
+       window.loadResults = async function() {
             const tbody = document.getElementById('resultsTableBody');
             tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center">Veriler çekiliyor...</td></tr>';
             
             try {
                 // Sadece son 500 kaydı çek (Okuma kotası için)
-                const q = query(collection(db, "quiz_submissions"), orderBy("timestamp", "desc"), limit(500));
+                const q = query(collection(db, "quiz_submissions"), orderBy("timestamp", "desc"), limit(250));
                 const snap = await getDocs(q);
                 
                 allSubmissions = snap.docs.map(d => { 
@@ -934,14 +934,14 @@
                     name: "İlk 3", 
                     icon: "👑", 
                     color: "bg-red-100 text-red-800 border border-red-200",
-                    desc: "Sınıfında şu ana kadar sınava girenler içinde ilk 3'e girdin!" 
+                    desc: "Sınıfındaki tüm arkadaşların arasında ilk 3'e girdin!" 
                 });
             } else if (rank <= 10) {
                 badges.push({ 
                     name: "İlk 10", 
                     icon: "💎", 
                     color: "bg-green-100 text-green-800 border border-green-200",
-                    desc: "Şu ana kadar sınava giren öğrencilerin sıralamasında en iyi 10 öğrenci arasında yer alıyorsun." 
+                    desc: "Sıralamada en iyi 10 öğrenci arasında yer alıyorsun." 
                 });
             }
 
